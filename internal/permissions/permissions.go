@@ -8,10 +8,10 @@
 //   - Effective permission matrix per NHI
 //   - Scope classification: cluster-wide, namespace-scoped, minimal
 //   - Detection of overly-permissive patterns:
-//     • cluster-admin binding
-//     • Wildcard (*) in verbs or resources
-//     • Default SA with any additional binding
-//     • Cross-namespace Secret access
+//   - cluster-admin binding
+//   - Wildcard (*) in verbs or resources
+//   - Default SA with any additional binding
+//   - Cross-namespace Secret access
 //   - OpenShift SCC (Security Context Constraints) analysis
 package permissions
 
@@ -34,11 +34,11 @@ type PolicyRule struct {
 
 // BindingRef references a RoleBinding or ClusterRoleBinding.
 type BindingRef struct {
-	Name            string       `json:"name"`
-	Kind            string       `json:"kind"` // "RoleBinding" or "ClusterRoleBinding"
-	Namespace       string       `json:"namespace,omitempty"`
-	RoleRef         string       `json:"role_ref"`
-	EffectiveRules  []PolicyRule `json:"effective_rules"`
+	Name           string       `json:"name"`
+	Kind           string       `json:"kind"` // "RoleBinding" or "ClusterRoleBinding"
+	Namespace      string       `json:"namespace,omitempty"`
+	RoleRef        string       `json:"role_ref"`
+	EffectiveRules []PolicyRule `json:"effective_rules"`
 }
 
 // PermissionSummary holds the complete RBAC analysis for a single NHI.

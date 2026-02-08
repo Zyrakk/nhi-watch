@@ -7,13 +7,13 @@
 //   - Risk score 0-100 per NHI
 //   - Weighted factors loaded from configs/scoring-rules.yaml
 //   - Built-in rules:
-//     • CLUSTER_ADMIN_BINDING (weight: 40)
-//     • WILDCARD_PERMISSIONS (weight: 25)
-//     • SECRET_NOT_ROTATED_90D (weight: 20)
-//     • AUTOMOUNT_TOKEN_ENABLED (weight: 15)
-//     • DEFAULT_SA_WITH_BINDING (weight: 30)
-//     • CERT_EXPIRING_30D (weight: 20)
-//     • CROSS_NAMESPACE_SECRET_ACCESS (weight: 25)
+//   - CLUSTER_ADMIN_BINDING (weight: 40)
+//   - WILDCARD_PERMISSIONS (weight: 25)
+//   - SECRET_NOT_ROTATED_90D (weight: 20)
+//   - AUTOMOUNT_TOKEN_ENABLED (weight: 15)
+//   - DEFAULT_SA_WITH_BINDING (weight: 30)
+//   - CERT_EXPIRING_30D (weight: 20)
+//   - CROSS_NAMESPACE_SECRET_ACCESS (weight: 25)
 //   - Aggregate cluster risk score
 //   - Reproducible and auditable — no AI/ML, pure deterministic rules
 package scoring
@@ -50,14 +50,14 @@ type RuleID string
 
 // Built-in rule identifiers (to be implemented in Phase 3).
 const (
-	RuleClusterAdminBinding       RuleID = "CLUSTER_ADMIN_BINDING"
-	RuleWildcardPermissions       RuleID = "WILDCARD_PERMISSIONS"
-	RuleSecretNotRotated90D       RuleID = "SECRET_NOT_ROTATED_90D"
-	RuleAutomountTokenEnabled     RuleID = "AUTOMOUNT_TOKEN_ENABLED"
-	RuleDefaultSAWithBinding      RuleID = "DEFAULT_SA_WITH_BINDING"
-	RuleCertExpiring30D           RuleID = "CERT_EXPIRING_30D"
+	RuleClusterAdminBinding        RuleID = "CLUSTER_ADMIN_BINDING"
+	RuleWildcardPermissions        RuleID = "WILDCARD_PERMISSIONS"
+	RuleSecretNotRotated90D        RuleID = "SECRET_NOT_ROTATED_90D"
+	RuleAutomountTokenEnabled      RuleID = "AUTOMOUNT_TOKEN_ENABLED"
+	RuleDefaultSAWithBinding       RuleID = "DEFAULT_SA_WITH_BINDING"
+	RuleCertExpiring30D            RuleID = "CERT_EXPIRING_30D"
 	RuleCrossNamespaceSecretAccess RuleID = "CROSS_NAMESPACE_SECRET_ACCESS"
-	RulePermissionUsageGap        RuleID = "PERMISSION_USAGE_GAP" // Phase 4
+	RulePermissionUsageGap         RuleID = "PERMISSION_USAGE_GAP" // Phase 4
 )
 
 // Finding represents a single security issue detected by a rule.
@@ -69,10 +69,10 @@ type Finding struct {
 
 // RiskScore holds the calculated risk for a single NHI.
 type RiskScore struct {
-	NHIID    string    `json:"nhi_id"`
-	Name     string    `json:"name"`
-	Namespace string   `json:"namespace"`
-	Score    int       `json:"score"`    // 0 (safe) – 100 (critical)
-	Severity Severity  `json:"severity"`
-	Findings []Finding `json:"findings"`
+	NHIID     string    `json:"nhi_id"`
+	Name      string    `json:"name"`
+	Namespace string    `json:"namespace"`
+	Score     int       `json:"score"`    // 0 (safe) – 100 (critical)
+	Severity  Severity  `json:"severity"`
+	Findings  []Finding `json:"findings"`
 }

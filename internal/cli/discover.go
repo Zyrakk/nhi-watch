@@ -51,7 +51,7 @@ func runDiscover(cmd *cobra.Command, args []string) error {
 	}
 
 	if verbose {
-		fmt.Fprintln(os.Stderr, "[*] Connected to cluster, discovering Non-Human Identities...")
+		_, _ = fmt.Fprintln(os.Stderr, "[*] Connected to cluster, discovering Non-Human Identities...")
 	}
 
 	// Run ServiceAccount discovery (Phase 0 scope).
@@ -80,20 +80,18 @@ func runDiscover(cmd *cobra.Command, args []string) error {
 }
 
 func renderTable(result *discovery.DiscoveryResult) {
-	// Header with cluster info (matches Phase 1 entregable format from roadmap).
-	fmt.Fprintf(os.Stderr, "\nCluster: %s\n", result.ClusterName)
-	fmt.Fprintf(os.Stderr, "Scan time: %s\n\n", result.Timestamp.Format(time.RFC3339))
+	_, _ = fmt.Fprintf(os.Stderr, "\nCluster: %s\n", result.ClusterName)
+	_, _ = fmt.Fprintf(os.Stderr, "Scan time: %s\n\n", result.Timestamp.Format(time.RFC3339))
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	defer w.Flush()
 
-	fmt.Fprintf(w, "NAMESPACE\tNAME\tTYPE\tSOURCE\tAUTOMOUNT\tAGE\n")
+	_, _ = fmt.Fprintf(w, "NAMESPACE\tNAME\tTYPE\tSOURCE\tAUTOMOUNT\tAGE\n")
 
 	for _, nhi := range result.Identities {
 		automount := nhi.Metadata["automount_token"]
 		age := discovery.FormatAge(time.Since(nhi.CreatedAt))
 
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
 			nhi.Namespace,
 			nhi.Name,
 			nhi.Type,
@@ -103,14 +101,16 @@ func renderTable(result *discovery.DiscoveryResult) {
 		)
 	}
 
+	_ = w.Flush()
+
 	// Summary by type (matches roadmap entregable).
-	fmt.Fprintln(os.Stderr)
+	_, _ = fmt.Fprintln(os.Stderr)
 	counts := result.CountByType()
 	for nhiType, count := range counts {
-		fmt.Fprintf(os.Stderr, "  %-24s %d\n", nhiType, count)
+		_, _ = fmt.Fprintf(os.Stderr, "  %-24s %d\n", nhiType, count)
 	}
-	fmt.Fprintf(os.Stderr, "  ---\n")
-	fmt.Fprintf(os.Stderr, "  %-24s %d\n", "TOTAL NHIs", result.Total())
+	_, _ = fmt.Fprintf(os.Stderr, "  ---\n")
+	_, _ = fmt.Fprintf(os.Stderr, "  %-24s %d\n", "TOTAL NHIs", result.Total())
 }
 
 func renderJSON(result *discovery.DiscoveryResult) error {
