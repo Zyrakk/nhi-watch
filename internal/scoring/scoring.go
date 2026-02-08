@@ -72,7 +72,7 @@ type RiskScore struct {
 	NHIID     string    `json:"nhi_id"`
 	Name      string    `json:"name"`
 	Namespace string    `json:"namespace"`
-	Score     int       `json:"score"`    // 0 (safe) – 100 (critical)
+	Score     int       `json:"score"` // 0 (safe) – 100 (critical)
 	Severity  Severity  `json:"severity"`
 	Findings  []Finding `json:"findings"`
 }
