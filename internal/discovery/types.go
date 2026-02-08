@@ -1,13 +1,20 @@
 // Package discovery implements the detection and enumeration of
 // Non-Human Identities (NHIs) across Kubernetes and OpenShift clusters.
 //
-// Phase 0: ServiceAccount enumeration.
-// Phase 1: Secrets with credentials, TLS certificates, cert-manager certificates,
-//
-//	SA tokens, and registry credentials.
+// Phase 0: ServiceAccount enumeration (proof of concept).
+// Phase 1: Full NHI discovery (Secrets, certs, agents, cloud creds).
+// Phase 2: RBAC permission resolution integrated into discovery results.
 package discovery
 
-import "time"
+import (
+	"time"
+
+	"github.com/Zyrakk/nhi-watch/internal/models"
+)
+
+// staleDays is the threshold (in days) after which a credential is
+// considered stale and should be flagged for rotation.
+const staleDays = 90
 
 // NHIType classifies the kind of Non-Human Identity.
 type NHIType string
@@ -17,22 +24,23 @@ const (
 	NHITypeServiceAccount NHIType = "service-account"
 
 	// NHITypeSecretCredential represents a Secret containing credentials
-	// (API keys, tokens, passwords — Opaque secrets with credential-like keys).
+	// (API keys, tokens, passwords, registry creds).
 	NHITypeSecretCredential NHIType = "secret-credential"
 
 	// NHITypeTLSCert represents a TLS certificate identity
-	// (kubernetes.io/tls secrets with parsed x509 metadata).
-	NHITypeTLSCert NHIType = "tls-certificate"
+	// (cert-manager or native kubernetes.io/tls secrets).
+	NHITypeTLSCert NHIType = "tls-cert"
 
-	// NHITypeSAToken represents a legacy ServiceAccount token secret
-	// (kubernetes.io/service-account-token, pre-1.24).
+	// NHITypeSAToken represents a legacy ServiceAccount token Secret
+	// (kubernetes.io/service-account-token).
 	NHITypeSAToken NHIType = "sa-token"
 
 	// NHITypeRegistryCredential represents a Docker registry credential
-	// (kubernetes.io/dockerconfigjson or kubernetes.io/dockercfg).
+	// Secret (kubernetes.io/dockerconfigjson or kubernetes.io/dockercfg).
 	NHITypeRegistryCredential NHIType = "registry-credential"
 
-	// NHITypeCertManagerCertificate represents a cert-manager Certificate resource.
+	// NHITypeCertManagerCertificate represents a cert-manager Certificate
+	// resource (cert-manager.io/v1 Certificate CRD).
 	NHITypeCertManagerCertificate NHIType = "cert-manager-certificate"
 
 	// NHITypeAgentIdentity represents an identity used by monitoring
@@ -44,20 +52,9 @@ const (
 	NHITypeCloudCredential NHIType = "cloud-credential"
 )
 
-// AllNHITypes returns all discoverable NHI types (for --type flag validation).
-func AllNHITypes() []NHIType {
-	return []NHIType{
-		NHITypeServiceAccount,
-		NHITypeSecretCredential,
-		NHITypeTLSCert,
-		NHITypeSAToken,
-		NHITypeRegistryCredential,
-		NHITypeCertManagerCertificate,
-	}
-}
-
 // NonHumanIdentity is the core model that represents any machine identity
-// discovered in the cluster.
+// discovered in the cluster. This struct is defined in the project description
+// and will be progressively enriched across phases.
 type NonHumanIdentity struct {
 	// ID is a unique identifier (hash of type + namespace + name).
 	ID string `json:"id"`
@@ -85,34 +82,43 @@ type NonHumanIdentity struct {
 	// "operator:cert-manager", etc.
 	Source string `json:"source,omitempty"`
 
-	// Stale indicates the credential has not been modified in more than 90 days.
-	Stale bool `json:"stale,omitempty"`
-
-	// SecretType holds the Kubernetes secret .type field (for secret-based NHIs).
-	SecretType string `json:"secret_type,omitempty"`
-
-	// Keys lists the data keys present in a Secret (NEVER the values).
-	Keys []string `json:"keys,omitempty"`
-
-	// Issuer is the certificate issuer (for cert-manager certificates).
-	Issuer string `json:"issuer,omitempty"`
-
-	// DNSNames lists the SAN DNS names (for TLS certs and cert-manager certificates).
-	DNSNames []string `json:"dns_names,omitempty"`
-
 	// Metadata holds type-specific details (secret count for SAs,
 	// key names for secrets, issuer for certs, etc.).
 	Metadata map[string]string `json:"metadata,omitempty"`
 
-	// --- Populated in later phases ---
-	// Permissions []Permission `json:"permissions,omitempty"` // Phase 2
-	// RiskScore   RiskScore    `json:"risk_score,omitempty"`  // Phase 3
-}
+	// --- Phase 1 fields ---
 
-// IsStale returns true if the NHI was created more than 90 days ago
-// and has not been rotated since.
-func (n *NonHumanIdentity) IsStale() bool {
-	return n.Stale
+	// SecretType is the Kubernetes secret type (e.g. "kubernetes.io/tls",
+	// "Opaque"). Only populated for secret-based NHIs.
+	SecretType string `json:"secret_type,omitempty"`
+
+	// Keys lists the data key names present in the Secret (never values).
+	Keys []string `json:"keys,omitempty"`
+
+	// DNSNames contains the Subject Alternative Names from TLS certificates.
+	DNSNames []string `json:"dns_names,omitempty"`
+
+	// Issuer identifies the certificate issuer (e.g. "Issuer:letsencrypt-prod").
+	// Populated for cert-manager Certificate NHIs.
+	Issuer string `json:"issuer,omitempty"`
+
+	// Stale indicates the credential has not been rotated in more than
+	// staleDays (90 days).
+	Stale bool `json:"stale,omitempty"`
+
+	// --- Phase 2 fields ---
+
+	// Permissions holds the resolved RBAC permission set (Phase 2).
+	// Only populated for NHIs of type "service-account".
+	Permissions *models.PermissionSet `json:"permissions,omitempty"`
+
+	// AccessibleBy lists ServiceAccounts (as "namespace/name") that can
+	// read this NHI's secrets. Only populated for secret-type NHIs
+	// (secret-credential, tls-cert) during Phase 2 permission resolution.
+	AccessibleBy []string `json:"accessible_by,omitempty"`
+
+	// --- Populated in later phases ---
+	// RiskScore   RiskScore    `json:"risk_score,omitempty"`  // Phase 3
 }
 
 // DiscoveryResult groups everything returned by a single discovery run.
@@ -141,5 +147,17 @@ func (r *DiscoveryResult) Total() int {
 	return len(r.Identities)
 }
 
-// staleDays is the number of days after which a credential is considered stale.
-const staleDays = 90
+// AllNHITypes returns every known NHI type. Used for CLI flag validation
+// and help text generation.
+func AllNHITypes() []NHIType {
+	return []NHIType{
+		NHITypeServiceAccount,
+		NHITypeSecretCredential,
+		NHITypeTLSCert,
+		NHITypeSAToken,
+		NHITypeRegistryCredential,
+		NHITypeCertManagerCertificate,
+		NHITypeAgentIdentity,
+		NHITypeCloudCredential,
+	}
+}
