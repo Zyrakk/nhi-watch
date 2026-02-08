@@ -1,0 +1,78 @@
+# NHI-Watch — Scoring Rules Configuration
+#
+# This file defines the deterministic risk scoring rules applied to
+# each Non-Human Identity during audit. Rules are reproducible and
+# auditable — no AI/ML, pure deterministic matching.
+#
+# Each rule has:
+#   - id: unique identifier
+#   - description: human-readable explanation
+#   - weight: contribution to the 0-100 risk score
+#   - enabled: toggle individual rules on/off
+#
+# Severity thresholds (derived from total score):
+#   CRITICAL: 80-100
+#   HIGH:     60-79
+#   MEDIUM:   40-59
+#   LOW:      20-39
+#   INFO:     0-19
+#
+# Status: This file is not yet consumed by the CLI (Phase 3).
+# It defines the target schema for the scoring engine.
+
+rules:
+  - id: CLUSTER_ADMIN_BINDING
+    description: "ServiceAccount is bound to cluster-admin ClusterRole"
+    weight: 40
+    enabled: true
+
+  - id: WILDCARD_PERMISSIONS
+    description: "ServiceAccount has wildcard (*) in verbs or resources"
+    weight: 25
+    enabled: true
+
+  - id: SECRET_NOT_ROTATED_90D
+    description: "Secret has not been rotated in more than 90 days"
+    weight: 20
+    enabled: true
+
+  - id: AUTOMOUNT_TOKEN_ENABLED
+    description: "ServiceAccount has automountServiceAccountToken not explicitly disabled"
+    weight: 15
+    enabled: true
+
+  - id: DEFAULT_SA_WITH_BINDING
+    description: "Default ServiceAccount has additional RoleBindings (should never happen in production)"
+    weight: 30
+    enabled: true
+
+  - id: CERT_EXPIRING_30D
+    description: "TLS certificate expires within the next 30 days"
+    weight: 20
+    enabled: true
+
+  - id: CROSS_NAMESPACE_SECRET_ACCESS
+    description: "ServiceAccount can read Secrets in namespaces outside its own"
+    weight: 25
+    enabled: true
+
+  # Phase 4 rule — requires audit log analysis
+  - id: PERMISSION_USAGE_GAP
+    description: "Permissions granted significantly exceed actual usage over 90 days"
+    weight: 20
+    enabled: false
+
+# Namespaces to exclude from scanning (glob patterns supported).
+# Useful for ignoring system namespaces in environments where you
+# don't control their configuration.
+# exclude_namespaces:
+#   - kube-system
+#   - kube-public
+#   - openshift-*
+
+# Override severity thresholds if needed.
+# severity_thresholds:
+#   critical: 80
+#   high: 60
+#   medium: 40
+#   low: 20
