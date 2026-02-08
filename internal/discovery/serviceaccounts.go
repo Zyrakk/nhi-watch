@@ -103,7 +103,7 @@ func generateID(nhiType NHIType, namespace, name string) string {
 	return fmt.Sprintf("%x", h[:8]) // 16-char hex string
 }
 
-// formatAge formats a duration into a human-readable age string.
+// FormatAge formats a duration into a human-readable age string.
 func FormatAge(d time.Duration) string {
 	switch {
 	case d.Hours() > 24*365:

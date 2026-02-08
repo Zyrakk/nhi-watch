@@ -5,6 +5,8 @@ package k8s
 import (
 	"fmt"
 
+	"k8s.io/client-go/discovery"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -23,6 +25,18 @@ type ClientOpts struct {
 	Context string
 }
 
+// Clients bundles all client types needed by NHI-Watch.
+type Clients struct {
+	// Clientset is the typed Kubernetes client for core resources.
+	Clientset kubernetes.Interface
+
+	// Dynamic is the untyped client for CRD resources (cert-manager, etc.).
+	Dynamic dynamic.Interface
+
+	// Discovery is used to check if CRDs/APIs exist before querying them.
+	Discovery discovery.DiscoveryInterface
+}
+
 // NewClient returns a *kubernetes.Clientset configured from the given options.
 // It supports in-cluster, explicit kubeconfig, $KUBECONFIG, and the default
 // ~/.kube/config path, which makes it compatible with k3s, OpenShift, and
@@ -33,8 +47,6 @@ func NewClient(opts ClientOpts) (*kubernetes.Clientset, error) {
 		return nil, fmt.Errorf("building kubernetes config: %w", err)
 	}
 
-	// Set a recognizable User-Agent so cluster admins can identify
-	// NHI-Watch traffic in audit logs.
 	cfg.UserAgent = "nhi-watch/0.1"
 
 	cs, err := kubernetes.NewForConfig(cfg)
@@ -43,6 +55,37 @@ func NewClient(opts ClientOpts) (*kubernetes.Clientset, error) {
 	}
 
 	return cs, nil
+}
+
+// NewClients returns all client types needed by NHI-Watch (typed, dynamic, discovery).
+func NewClients(opts ClientOpts) (*Clients, error) {
+	cfg, err := buildConfig(opts)
+	if err != nil {
+		return nil, fmt.Errorf("building kubernetes config: %w", err)
+	}
+
+	cfg.UserAgent = "nhi-watch/0.1"
+
+	cs, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("creating kubernetes clientset: %w", err)
+	}
+
+	dynClient, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("creating dynamic client: %w", err)
+	}
+
+	dc, err := discovery.NewDiscoveryClientForConfig(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("creating discovery client: %w", err)
+	}
+
+	return &Clients{
+		Clientset: cs,
+		Dynamic:   dynClient,
+		Discovery: dc,
+	}, nil
 }
 
 // ClusterName extracts the current context name from the kubeconfig,
@@ -96,6 +139,5 @@ func loadingRulesFor(explicitPath string) *clientcmd.ClientConfigLoadingRules {
 	if explicitPath != "" {
 		return &clientcmd.ClientConfigLoadingRules{ExplicitPath: explicitPath}
 	}
-	// This handles: $KUBECONFIG (single or colon-separated) → ~/.kube/config
 	return clientcmd.NewDefaultClientConfigLoadingRules()
 }

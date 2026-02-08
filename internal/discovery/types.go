@@ -1,11 +1,10 @@
 // Package discovery implements the detection and enumeration of
 // Non-Human Identities (NHIs) across Kubernetes and OpenShift clusters.
 //
-// Phase 0: ServiceAccount enumeration (proof of concept).
-// Phase 1 will add: Secrets with credentials, TLS certificates (cert-manager),
+// Phase 0: ServiceAccount enumeration.
+// Phase 1: Secrets with credentials, TLS certificates, cert-manager certificates,
 //
-//	agent identities (Wazuh, Falco, Datadog), ZCloud device keys,
-//	and cloud provider credentials.
+//	SA tokens, and registry credentials.
 package discovery
 
 import "time"
@@ -18,12 +17,23 @@ const (
 	NHITypeServiceAccount NHIType = "service-account"
 
 	// NHITypeSecretCredential represents a Secret containing credentials
-	// (API keys, tokens, passwords, registry creds).
+	// (API keys, tokens, passwords — Opaque secrets with credential-like keys).
 	NHITypeSecretCredential NHIType = "secret-credential"
 
 	// NHITypeTLSCert represents a TLS certificate identity
-	// (cert-manager or native kubernetes.io/tls secrets).
-	NHITypeTLSCert NHIType = "tls-cert"
+	// (kubernetes.io/tls secrets with parsed x509 metadata).
+	NHITypeTLSCert NHIType = "tls-certificate"
+
+	// NHITypeSAToken represents a legacy ServiceAccount token secret
+	// (kubernetes.io/service-account-token, pre-1.24).
+	NHITypeSAToken NHIType = "sa-token"
+
+	// NHITypeRegistryCredential represents a Docker registry credential
+	// (kubernetes.io/dockerconfigjson or kubernetes.io/dockercfg).
+	NHITypeRegistryCredential NHIType = "registry-credential"
+
+	// NHITypeCertManagerCertificate represents a cert-manager Certificate resource.
+	NHITypeCertManagerCertificate NHIType = "cert-manager-certificate"
 
 	// NHITypeAgentIdentity represents an identity used by monitoring
 	// or infrastructure agents (Wazuh, Falco, Datadog, ZCloud).
@@ -34,9 +44,20 @@ const (
 	NHITypeCloudCredential NHIType = "cloud-credential"
 )
 
+// AllNHITypes returns all discoverable NHI types (for --type flag validation).
+func AllNHITypes() []NHIType {
+	return []NHIType{
+		NHITypeServiceAccount,
+		NHITypeSecretCredential,
+		NHITypeTLSCert,
+		NHITypeSAToken,
+		NHITypeRegistryCredential,
+		NHITypeCertManagerCertificate,
+	}
+}
+
 // NonHumanIdentity is the core model that represents any machine identity
-// discovered in the cluster. This struct is defined in the project description
-// and will be progressively enriched across phases.
+// discovered in the cluster.
 type NonHumanIdentity struct {
 	// ID is a unique identifier (hash of type + namespace + name).
 	ID string `json:"id"`
@@ -64,6 +85,21 @@ type NonHumanIdentity struct {
 	// "operator:cert-manager", etc.
 	Source string `json:"source,omitempty"`
 
+	// Stale indicates the credential has not been modified in more than 90 days.
+	Stale bool `json:"stale,omitempty"`
+
+	// SecretType holds the Kubernetes secret .type field (for secret-based NHIs).
+	SecretType string `json:"secret_type,omitempty"`
+
+	// Keys lists the data keys present in a Secret (NEVER the values).
+	Keys []string `json:"keys,omitempty"`
+
+	// Issuer is the certificate issuer (for cert-manager certificates).
+	Issuer string `json:"issuer,omitempty"`
+
+	// DNSNames lists the SAN DNS names (for TLS certs and cert-manager certificates).
+	DNSNames []string `json:"dns_names,omitempty"`
+
 	// Metadata holds type-specific details (secret count for SAs,
 	// key names for secrets, issuer for certs, etc.).
 	Metadata map[string]string `json:"metadata,omitempty"`
@@ -71,6 +107,12 @@ type NonHumanIdentity struct {
 	// --- Populated in later phases ---
 	// Permissions []Permission `json:"permissions,omitempty"` // Phase 2
 	// RiskScore   RiskScore    `json:"risk_score,omitempty"`  // Phase 3
+}
+
+// IsStale returns true if the NHI was created more than 90 days ago
+// and has not been rotated since.
+func (n *NonHumanIdentity) IsStale() bool {
+	return n.Stale
 }
 
 // DiscoveryResult groups everything returned by a single discovery run.
@@ -98,3 +140,6 @@ func (r *DiscoveryResult) CountByType() map[NHIType]int {
 func (r *DiscoveryResult) Total() int {
 	return len(r.Identities)
 }
+
+// staleDays is the number of days after which a credential is considered stale.
+const staleDays = 90
