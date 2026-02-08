@@ -52,9 +52,9 @@ type discoveryError struct {
 // If dynClient or dc are nil, cert-manager discovery is silently skipped.
 func DiscoverAll(ctx context.Context, client kubernetes.Interface, dc discovery.DiscoveryInterface, dynClient dynamic.Interface, opts DiscoverOpts) ([]NonHumanIdentity, []error) {
 	var (
-		mu       sync.Mutex
-		wg       sync.WaitGroup
-		allNHIs  []NonHumanIdentity
+		mu        sync.Mutex
+		wg        sync.WaitGroup
+		allNHIs   []NonHumanIdentity
 		allErrors []error
 	)
 
