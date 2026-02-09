@@ -169,6 +169,10 @@ func renderTable(result *discovery.DiscoveryResult) {
 	if staleCount > 0 {
 		_, _ = fmt.Fprintf(os.Stderr, "  %-30s %d ⚠\n", "STALE (>90d)", staleCount)
 	}
+
+	// TIP for audit command.
+	_, _ = fmt.Fprintln(os.Stderr)
+	_, _ = fmt.Fprintln(os.Stderr, "  TIP: Run 'nhi-watch audit' for full risk assessment with scoring.")
 }
 
 // renderDetail returns the most relevant detail for the DETAIL column
