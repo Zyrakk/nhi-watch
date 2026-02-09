@@ -16,15 +16,15 @@ NHIs outnumber human identities 17:1 in large organizations and are the fastest-
 
 ## Current Status
 
-**Phase 2 — RBAC Permission Resolution** ✅
+**Phase 3 — Risk Scoring Engine** ✅
 
 | Phase | Description | Status |
 |-------|-------------|--------|
 | **Phase 0** | Project structure, CLI skeleton, SA discovery PoC | ✅ Done |
 | **Phase 1** | Full NHI discovery (Secrets, TLS certs, cert-manager) | ✅ Done |
-| **Phase 2** | RBAC permission mapping and scope analysis | ✅ Current |
-| Phase 3 | Risk scoring engine (deterministic, YAML-configurable) | 🔜 Next |
-| Phase 4 | Audit log usage analysis (permissions vs actual use) | Planned |
+| **Phase 2** | RBAC permission mapping and scope analysis | ✅ Done |
+| **Phase 3** | Risk scoring engine (deterministic, 16 built-in rules) | ✅ Done |
+| Phase 4 | Audit log usage analysis (permissions vs actual use) | 🔜 Next |
 | Phase 5 | Assisted remediation (minimal RBAC generation, dry-run) | Planned |
 | Phase 6 | OpenShift extensions, Goreleaser, Helm chart | Planned |
 
@@ -79,6 +79,21 @@ The binary is placed in `./bin/nhi-watch`.
 # Permissions as JSON
 ./bin/nhi-watch permissions -o json
 
+# Full security audit with risk scoring
+./bin/nhi-watch audit
+
+# Audit — show only CRITICAL and HIGH findings
+./bin/nhi-watch audit --severity high
+
+# Audit — filter by NHI type
+./bin/nhi-watch audit --type service-account
+
+# Audit — JSON output (for jq / SIEM integration)
+./bin/nhi-watch audit -o json
+
+# Audit — Markdown output (for docs, tickets, or PRs)
+./bin/nhi-watch audit -o markdown
+
 # Use a specific kubeconfig or context
 ./bin/nhi-watch discover --kubeconfig /path/to/config --context my-cluster
 
@@ -108,6 +123,8 @@ ci               registry-creds          registry-credential         unknown    
   ---
   TOTAL NHIs                   7
   STALE (>90d)                 2 ⚠
+
+  TIP: Run 'nhi-watch audit' for full risk assessment with scoring.
 ```
 
 ### Example Output — Permissions
@@ -151,13 +168,54 @@ Scope: CLUSTER-WIDE
 Flags: SECRET_ACCESS_CLUSTER_WIDE, CROSS_NAMESPACE_SECRET_ACCESS
 ```
 
+### Example Output — Audit
+
+```
+╔══════════════════════════════════════════════════════════════╗
+║  NHI-Watch Audit Report                                     ║
+║  Cluster: zcloud-k3s                                        ║
+║  2026-02-09T12:00:00Z                                       ║
+╚══════════════════════════════════════════════════════════════╝
+
+SUMMARY: 15 NHIs discovered | 2 CRITICAL | 3 HIGH | 2 MEDIUM | 8 INFO
+
+── CRITICAL ───────────────────────────────────────────────────
+
+[95] service-account "overprivileged-sa" (nhi-watch-test)
+     Rules: CLUSTER_ADMIN_BINDING, AUTOMOUNT_TOKEN_ENABLED
+     Bound to cluster-admin via ClusterRoleBinding "nhi-watch-test-cluster-admin"
+     → Replace cluster-admin with a scoped ClusterRole granting only needed verbs/resources.
+
+[90] secret-credential "stale-api-key" (nhi-watch-test)
+     Rules: SECRET_NOT_ROTATED_180D, SECRET_NOT_ROTATED_90D, CONTAINS_PRIVATE_KEY
+     Secret created 200d ago without rotation (threshold: 180d)
+     → Rotate this secret immediately. Secrets older than 180 days are high risk.
+
+── HIGH ───────────────────────────────────────────────────────
+
+[75] tls-certificate "expiring-cert" (production)
+     Rule: TLS_CERT_EXPIRES_30D
+     Certificate expires in 22 days (2026-03-03)
+     → Renew or configure auto-renewal before expiration.
+
+── STATISTICS ─────────────────────────────────────────────────
+
+NHI Type                Count  Critical  High  Medium  Low/Info
+service-account         7      1         1     1       4
+secret-credential       3      1         1     0       1
+tls-certificate         3      0         1     1       1
+cert-manager-cert       2      0         0     0       2
+─                       ─      ─         ─     ─       ─
+TOTAL                   15     2         3     2       8
+```
+
 ## Commands
 
 | Command       | Status      | Description                                       |
 |---------------|-------------|---------------------------------------------------|
 | `discover`    | ✅ Working  | Enumerate all NHIs (SAs, Secrets, TLS, cert-manager) |
 | `permissions` | ✅ Working  | Resolve RBAC bindings, scope, and overprivilege flags |
-| `audit`       | 🔜 Phase 3  | Full audit with risk scoring and remediation hints |
+| `audit`       | ✅ Working  | Full audit with risk scoring and remediation hints |
 | `version`     | ✅ Working  | Print version info                                 |
 
 ## Overprivilege Detection
@@ -183,6 +241,61 @@ Scope classification:
 | `MINIMAL` | Only view verbs (get, list, watch) |
 | `NONE` | No bindings found |
 
+## Risk Scoring Engine
+
+The `audit` command applies 16 deterministic scoring rules to every discovered NHI. Each rule produces a score from 0–100; the final score is the maximum of all matching rules. No AI/ML — pure deterministic, reproducible, and auditable.
+
+### Severity Levels
+
+| Severity | Score Range | Meaning |
+|----------|-------------|---------|
+| CRITICAL | 80–100 | Immediate action required |
+| HIGH | 60–79 | Should be addressed soon |
+| MEDIUM | 40–59 | Review recommended |
+| LOW | 20–39 | Minor concern |
+| INFO | 0–19 | No issues detected |
+
+### Built-in Rules (16)
+
+**ServiceAccount rules (7):**
+
+| Rule ID | Description | Score |
+|---------|-------------|-------|
+| `CLUSTER_ADMIN_BINDING` | SA bound to cluster-admin ClusterRole | 95 |
+| `WILDCARD_PERMISSIONS` | SA has wildcard (`*`) in verbs or resources | 80 |
+| `DEFAULT_SA_HAS_BINDINGS` | Default SA has additional RoleBindings | 85 |
+| `SECRET_ACCESS_CLUSTER_WIDE` | SA can read Secrets cluster-wide | 70 |
+| `CROSS_NAMESPACE_SECRET_ACCESS` | SA can read Secrets outside its namespace | 65 |
+| `AUTOMOUNT_TOKEN_ENABLED` | automountServiceAccountToken not disabled | 30 |
+| `NO_BINDINGS_BUT_AUTOMOUNT` | SA has no bindings but automount is on | 20 |
+
+**Secret rules (6):**
+
+| Rule ID | Description | Score |
+|---------|-------------|-------|
+| `SECRET_NOT_ROTATED_180D` | Secret not rotated in 180+ days | 90 |
+| `SECRET_NOT_ROTATED_90D` | Secret not rotated in 90+ days | 75 |
+| `TLS_CERT_EXPIRED` | TLS certificate is expired | 95 |
+| `TLS_CERT_EXPIRES_30D` | TLS certificate expires within 30 days | 75 |
+| `TLS_CERT_EXPIRES_90D` | TLS certificate expires within 90 days | 45 |
+| `CONTAINS_PRIVATE_KEY` | Secret contains a private key | 60 |
+
+**cert-manager Certificate rules (3):**
+
+| Rule ID | Description | Score |
+|---------|-------------|-------|
+| `CERT_NOT_READY` | cert-manager Certificate is not in Ready state | 80 |
+| `CERT_EXPIRES_30D` | cert-manager Certificate expires within 30 days | 70 |
+| `CERT_EXPIRES_90D` | cert-manager Certificate expires within 90 days | 40 |
+
+### Output Formats
+
+The `audit` command supports three output formats:
+
+- **`table`** (default) — Terminal-friendly with severity grouping and remediation hints
+- **`json`** — Machine-readable for jq, SIEM pipelines, or CI/CD integration
+- **`markdown`** — For documentation, Jira tickets, or pull requests
+
 ## Project Structure
 
 ```
@@ -194,7 +307,7 @@ nhi-watch/
 │   │   ├── root.go                  #   Root command + global flags
 │   │   ├── discover.go              #   discover subcommand
 │   │   ├── permissions.go           #   permissions subcommand
-│   │   ├── audit.go                 #   audit subcommand (stub)
+│   │   ├── audit.go                 #   audit subcommand (Phase 3)
 │   │   └── version.go               #   version subcommand
 │   ├── k8s/                         # Shared Kubernetes client
 │   │   └── client.go                #   kubeconfig / in-cluster / context
@@ -202,9 +315,11 @@ nhi-watch/
 │   │   └── permissions.go           #   PermissionSet, BindingRef, ResolvedRule
 │   ├── discovery/                   # NHI enumeration logic
 │   │   ├── types.go                 #   NonHumanIdentity model + NHI types
+│   │   ├── discover.go              #   Orchestrator (parallel discovery)
 │   │   ├── serviceaccounts.go       #   SA discovery with source detection
 │   │   ├── serviceaccounts_test.go  #   Tests with fake clientset
 │   │   ├── secrets.go               #   Secret discovery (credentials, TLS, tokens)
+│   │   ├── secrets_test.go          #   Credential key + cert parsing tests
 │   │   └── certificates.go          #   cert-manager Certificate discovery
 │   ├── permissions/                 # RBAC analysis (Phase 2)
 │   │   ├── resolver.go              #   RBAC cache + binding resolution
@@ -212,12 +327,19 @@ nhi-watch/
 │   │   ├── analyzer.go              #   7 overprivilege flag detectors + scope
 │   │   └── analyzer_test.go         #   16 tests (each flag + scope classification)
 │   ├── scoring/                     # Risk scoring engine (Phase 3)
-│   │   └── scoring.go               #   Severity levels, rule IDs, Finding
+│   │   ├── scoring.go               #   Severity levels, thresholds, helpers
+│   │   ├── engine.go                #   Rule engine, ScoreAll, filters, counts
+│   │   ├── engine_test.go           #   Engine unit tests
+│   │   ├── rules.go                 #   16 built-in scoring rules
+│   │   ├── rules_test.go            #   Integration + per-rule tests
+│   │   └── recommendations.go       #   Remediation hint generator
 │   └── reporter/                    # Report generation (future)
 │       └── reporter.go
 ├── configs/
-│   └── scoring-rules.yaml           # Deterministic scoring rules (Phase 3)
+│   └── scoring-rules.yaml           # Scoring rules schema (future YAML loading)
 ├── scripts/                         # Helper scripts
+│   ├── setup-phase1-nhis.sh         #   Create test NHIs for Phase 1
+│   └── setup-test-nhis.sh           #   Create "bad" NHIs for scoring validation
 ├── .github/workflows/ci.yml         # GitHub Actions CI (lint + test)
 ├── .golangci.yml                    # Linter configuration
 ├── Makefile                         # build, test, lint, run, clean
