@@ -406,4 +406,5 @@ NHI-Watch doesn't replace Vault — it covers the gap that neither Vault nor com
 
 ## License
 
-MIT
+Copyright 2026 Stefan Contreras
+Licensed under the Apache License, Version 2.0
