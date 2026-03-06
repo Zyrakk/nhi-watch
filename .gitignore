@@ -24,3 +24,7 @@ coverage.html
 # Environment
 .env
 *.local
+
+# Others
+AGENTS.md
+docs/
