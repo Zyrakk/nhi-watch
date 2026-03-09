@@ -16,7 +16,7 @@ func refreshRootVersion() {
 }
 
 func printVersionInfo(w io.Writer) {
-	fmt.Fprintln(w, versionInfoString())
+	_, _ = fmt.Fprintln(w, versionInfoString())
 }
 
 var versionCmd = &cobra.Command{
