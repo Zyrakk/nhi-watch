@@ -2,7 +2,12 @@ PROJECT   := nhi-watch
 MODULE    := github.com/Zyrakk/nhi-watch
 BINARY    := bin/$(PROJECT)
 VERSION   ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
-LDFLAGS   := -s -w -X '$(MODULE)/internal/cli.Version=$(VERSION)'
+COMMIT    ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+BUILD_DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
+LDFLAGS   := -s -w \
+	-X '$(MODULE)/internal/cli.Version=$(VERSION)' \
+	-X '$(MODULE)/internal/cli.Commit=$(COMMIT)' \
+	-X '$(MODULE)/internal/cli.BuildDate=$(BUILD_DATE)'
 GO        := go
 GOFLAGS   := -trimpath
 LINT      := golangci-lint

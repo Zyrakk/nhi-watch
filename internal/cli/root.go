@@ -9,6 +9,12 @@ import (
 // Version is set at build time via -ldflags.
 var Version = "dev"
 
+// Commit is set at build time via -ldflags.
+var Commit = "unknown"
+
+// BuildDate is set at build time via -ldflags.
+var BuildDate = "unknown"
+
 // Global flags shared across all subcommands.
 var (
 	kubeconfig string
@@ -48,10 +54,12 @@ Compatible with k3s, vanilla Kubernetes, and OpenShift.`,
 
 // Execute runs the root command. Called from main.
 func Execute() error {
+	refreshRootVersion()
 	return rootCmd.Execute()
 }
 
 func init() {
+	rootCmd.SetVersionTemplate("{{.Version}}\n")
 	rootCmd.PersistentFlags().StringVar(&kubeconfig, "kubeconfig", "", "path to kubeconfig file (default: ~/.kube/config)")
 	rootCmd.PersistentFlags().StringVar(&kubeCtx, "context", "", "kubernetes context to use")
 	rootCmd.PersistentFlags().StringVarP(&outputFmt, "output", "o", "table", "output format: table, json")
