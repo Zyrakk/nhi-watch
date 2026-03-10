@@ -12,6 +12,7 @@ import (
 
 var (
 	policyOutputDir string
+	policyFormat    string
 )
 
 var policyCmd = &cobra.Command{
@@ -40,11 +41,16 @@ Output is multi-document YAML to stdout, or individual files with --output-dir.`
 
 func init() {
 	policyExportCmd.Flags().StringVar(&policyOutputDir, "output-dir", "", "write individual YAML files to this directory")
+	policyExportCmd.Flags().StringVar(&policyFormat, "format", "gatekeeper", "policy format: gatekeeper")
 	policyCmd.AddCommand(policyExportCmd)
 	rootCmd.AddCommand(policyCmd)
 }
 
 func runPolicyExport(cmd *cobra.Command, args []string) error {
+	if policyFormat != "gatekeeper" {
+		return fmt.Errorf("unsupported policy format %q; supported: gatekeeper", policyFormat)
+	}
+
 	templates, err := policy.GenerateGatekeeperTemplates()
 	if err != nil {
 		return fmt.Errorf("generating templates: %w", err)
