@@ -45,14 +45,17 @@ type RuleResult struct {
 
 // ScoringResult holds the complete scoring for a single NHI.
 type ScoringResult struct {
-	NHIID          string       `json:"nhi_id"`
-	Name           string       `json:"name"`
-	Namespace      string       `json:"namespace"`
-	Type           string       `json:"type"`
-	FinalScore     int          `json:"final_score"`
-	FinalSeverity  Severity     `json:"final_severity"`
-	Results        []RuleResult `json:"results"`
-	Recommendation string       `json:"recommendation"`
+	NHIID             string       `json:"nhi_id"`
+	Name              string       `json:"name"`
+	Namespace         string       `json:"namespace"`
+	Type              string       `json:"type"`
+	FinalScore        int          `json:"final_score"`
+	FinalSeverity     Severity     `json:"final_severity"`
+	Results           []RuleResult `json:"results"`
+	Recommendation    string       `json:"recommendation"`
+	BaseScore         int          `json:"base_score"`
+	PostureMultiplier float64      `json:"posture_multiplier"`
+	PostureDetail     string       `json:"posture_detail,omitempty"`
 }
 
 // Engine runs scoring rules against NHIs.
@@ -66,7 +69,8 @@ func NewEngine(rules []Rule) *Engine {
 }
 
 // Score evaluates all applicable rules against a single NHI and returns
-// the scoring result. The final score is the maximum of all matching rules.
+// the scoring result. The final score is the maximum of all matching rules,
+// adjusted by the pod security posture multiplier.
 func (e *Engine) Score(nhi *discovery.NonHumanIdentity) ScoringResult {
 	result := ScoringResult{
 		NHIID:     nhi.ID,
@@ -75,6 +79,9 @@ func (e *Engine) Score(nhi *discovery.NonHumanIdentity) ScoringResult {
 		Type:      string(nhi.Type),
 		Results:   make([]RuleResult, 0),
 	}
+
+	var baseScore int
+	var baseSeverity Severity
 
 	for _, rule := range e.rules {
 		if !ruleApplies(rule, nhi.Type) {
@@ -96,15 +103,28 @@ func (e *Engine) Score(nhi *discovery.NonHumanIdentity) ScoringResult {
 		}
 		result.Results = append(result.Results, rr)
 
-		if rule.Score > result.FinalScore {
-			result.FinalScore = rule.Score
-			result.FinalSeverity = rule.Severity
+		if rule.Score > baseScore {
+			baseScore = rule.Score
+			baseSeverity = rule.Severity
 		}
 	}
 
-	// NHIs with no matching rules get INFO severity.
+	// Calculate posture multiplier from pod security postures.
+	multiplier := CalculatePostureMultiplier(nhi.PodPostures)
+	result.BaseScore = baseScore
+	result.PostureMultiplier = multiplier
+	result.PostureDetail = postureDetail(nhi.PodPostures)
+
+	// Apply multiplier to compute final score.
+	result.FinalScore = applyMultiplier(baseScore, multiplier)
+
+	// Determine final severity.
 	if len(result.Results) == 0 {
 		result.FinalSeverity = SeverityInfo
+	} else if multiplier > 1.0 {
+		result.FinalSeverity = SeverityFromScore(result.FinalScore)
+	} else {
+		result.FinalSeverity = baseSeverity
 	}
 
 	result.Recommendation = GenerateRecommendation(result.Results)

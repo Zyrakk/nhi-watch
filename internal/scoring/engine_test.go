@@ -66,6 +66,12 @@ func TestScore_FinalScoreIsMax(t *testing.T) {
 	if result.FinalScore != 70 {
 		t.Errorf("expected max score 70, got %d", result.FinalScore)
 	}
+	if result.BaseScore != 70 {
+		t.Errorf("expected base score 70, got %d", result.BaseScore)
+	}
+	if result.PostureMultiplier != 1.0 {
+		t.Errorf("expected posture multiplier 1.0 (no pods), got %f", result.PostureMultiplier)
+	}
 	if result.FinalSeverity != SeverityHigh {
 		t.Errorf("expected HIGH severity, got %s", result.FinalSeverity)
 	}
@@ -305,5 +311,117 @@ func TestSeverityRank(t *testing.T) {
 	}
 	if SeverityRank(SeverityInfo) >= SeverityRank(SeverityLow) {
 		t.Error("INFO should rank lower than LOW")
+	}
+}
+
+// ── Posture multiplier integration with engine ───────────────────────
+
+func TestScore_PostureMultiplierBoostsScore(t *testing.T) {
+	rules := []Rule{
+		{
+			ID: "HIGH_RULE", Severity: SeverityHigh, Score: 70,
+			AppliesTo: []discovery.NHIType{discovery.NHITypeServiceAccount},
+			Evaluate:  func(nhi *discovery.NonHumanIdentity) (bool, string) { return true, "high" },
+		},
+	}
+
+	engine := NewEngine(rules)
+	nhi := makeTestSA("priv-sa", "default", nil, nil)
+	nhi.PodPostures = []discovery.PodPosture{
+		{PodName: "priv-pod", Namespace: "default", Privileged: true, HostPID: true},
+	}
+	result := engine.Score(&nhi)
+
+	if result.BaseScore != 70 {
+		t.Errorf("expected base score 70, got %d", result.BaseScore)
+	}
+	if result.PostureMultiplier <= 1.0 {
+		t.Errorf("expected posture multiplier > 1.0, got %f", result.PostureMultiplier)
+	}
+	if result.FinalScore <= 70 {
+		t.Errorf("expected final score > 70 (posture boosted), got %d", result.FinalScore)
+	}
+}
+
+func TestScore_PostureMultiplierNoPodsSameScore(t *testing.T) {
+	rules := []Rule{
+		{
+			ID: "MEDIUM_RULE", Severity: SeverityMedium, Score: 50,
+			AppliesTo: []discovery.NHIType{discovery.NHITypeServiceAccount},
+			Evaluate:  func(nhi *discovery.NonHumanIdentity) (bool, string) { return true, "medium" },
+		},
+	}
+
+	engine := NewEngine(rules)
+	nhi := makeTestSA("normal-sa", "default", nil, nil)
+	result := engine.Score(&nhi)
+
+	if result.BaseScore != result.FinalScore {
+		t.Errorf("expected BaseScore == FinalScore when no pods, got base=%d final=%d",
+			result.BaseScore, result.FinalScore)
+	}
+	if result.PostureMultiplier != 1.0 {
+		t.Errorf("expected posture multiplier 1.0, got %f", result.PostureMultiplier)
+	}
+}
+
+func TestScore_PostureSeverityEscalation(t *testing.T) {
+	rules := []Rule{
+		{
+			ID: "HIGH_RULE", Severity: SeverityHigh, Score: 70,
+			AppliesTo: []discovery.NHIType{discovery.NHITypeServiceAccount},
+			Evaluate:  func(nhi *discovery.NonHumanIdentity) (bool, string) { return true, "high" },
+		},
+	}
+
+	engine := NewEngine(rules)
+	nhi := makeTestSA("risky-sa", "default", nil, nil)
+	nhi.PodPostures = []discovery.PodPosture{
+		{PodName: "priv-pod", Namespace: "default", Privileged: true, HostPID: true},
+	}
+	result := engine.Score(&nhi)
+
+	// 70 * 1.30 = 91 → CRITICAL
+	if result.FinalScore < 80 {
+		t.Errorf("expected final score >= 80 (CRITICAL threshold), got %d", result.FinalScore)
+	}
+	if result.FinalSeverity != SeverityCritical {
+		t.Errorf("expected CRITICAL severity after posture boost, got %s", result.FinalSeverity)
+	}
+}
+
+func TestIntegration_ClusterAdminWithPrivilegedPod(t *testing.T) {
+	engine := NewEngine(DefaultRules())
+
+	nhi := discovery.NonHumanIdentity{
+		ID: "sa-admin-priv", Type: discovery.NHITypeServiceAccount,
+		Name: "admin-priv-sa", Namespace: "kube-system",
+		CreatedAt: time.Now().Add(-30 * 24 * time.Hour),
+		Metadata:  map[string]string{"automount_token": "default (true)"},
+		Permissions: &models.PermissionSet{
+			Bindings: []models.BindingRef{
+				{Name: "admin-crb", Kind: "ClusterRoleBinding", RoleRef: "cluster-admin", RoleKind: "ClusterRole"},
+			},
+			Flags: []string{"CLUSTER_ADMIN", "WILDCARD_VERBS", "WILDCARD_RESOURCES", "WILDCARD_APIGROUPS",
+				"SECRET_ACCESS_CLUSTER_WIDE", "CROSS_NAMESPACE_SECRET_ACCESS"},
+		},
+		PodPostures: []discovery.PodPosture{
+			{PodName: "admin-pod", Namespace: "kube-system", Privileged: true, HostPID: true},
+		},
+	}
+
+	result := engine.Score(&nhi)
+
+	if result.BaseScore != 95 {
+		t.Errorf("expected base score 95, got %d", result.BaseScore)
+	}
+	if result.FinalScore <= 95 {
+		t.Errorf("expected final score > 95 with privileged pod, got %d", result.FinalScore)
+	}
+	if result.FinalScore > 100 {
+		t.Errorf("expected final score <= 100, got %d", result.FinalScore)
+	}
+	if result.FinalSeverity != SeverityCritical {
+		t.Errorf("expected CRITICAL severity, got %s", result.FinalSeverity)
 	}
 }
