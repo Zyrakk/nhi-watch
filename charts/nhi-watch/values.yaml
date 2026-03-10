@@ -1,0 +1,21 @@
+image:
+  repository: ghcr.io/zyrakk/nhi-watch
+  tag: latest
+  pullPolicy: IfNotPresent
+
+schedule: "0 2 * * *"
+
+audit:
+  outputFormat: json
+  failOn: ""
+  severity: ""
+  verbose: false
+
+baseline:
+  enabled: false
+  pvcName: ""
+
+serviceAccount:
+  create: true
+  name: nhi-watch
+  annotations: {}

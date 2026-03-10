@@ -1,0 +1,45 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .Release.Name }}-nhi-watch
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: nhi-watch
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  schedule: {{ .Values.schedule | quote }}
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: {{ .Values.serviceAccount.name }}
+          containers:
+            - name: nhi-watch
+              image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              args:
+                - audit
+                - --output={{ .Values.audit.outputFormat }}
+                {{- if .Values.audit.failOn }}
+                - --fail-on={{ .Values.audit.failOn }}
+                {{- end }}
+                {{- if .Values.audit.severity }}
+                - --severity={{ .Values.audit.severity }}
+                {{- end }}
+                {{- if .Values.audit.verbose }}
+                - --verbose
+                {{- end }}
+              resources:
+                limits:
+                  cpu: 200m
+                  memory: 256Mi
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+              securityContext:
+                runAsNonRoot: true
+                readOnlyRootFilesystem: true
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: [ALL]
+          restartPolicy: OnFailure
