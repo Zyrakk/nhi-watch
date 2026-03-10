@@ -9,6 +9,8 @@
 //   - Reproducible and auditable — no AI/ML, pure deterministic rules
 package scoring
 
+import "strings"
+
 // Severity represents the risk level of a finding.
 type Severity string
 
@@ -68,4 +70,23 @@ func SeverityRank(s Severity) int {
 // SeverityMeetsThreshold returns true if s is at least as severe as threshold.
 func SeverityMeetsThreshold(s, threshold Severity) bool {
 	return SeverityRank(s) >= SeverityRank(threshold)
+}
+
+// ParseSeverity converts a case-insensitive string to a Severity constant.
+// Returns empty string if the input is not a valid severity.
+func ParseSeverity(s string) Severity {
+	switch strings.ToUpper(s) {
+	case "CRITICAL":
+		return SeverityCritical
+	case "HIGH":
+		return SeverityHigh
+	case "MEDIUM":
+		return SeverityMedium
+	case "LOW":
+		return SeverityLow
+	case "INFO":
+		return SeverityInfo
+	default:
+		return ""
+	}
 }
