@@ -49,6 +49,7 @@ func ruleClusterAdminBinding() Rule {
 		Severity:    SeverityCritical,
 		Score:       95,
 		AppliesTo:   []discovery.NHIType{discovery.NHITypeServiceAccount},
+		CISControls: []string{"5.1.1"},
 		Evaluate: func(nhi *discovery.NonHumanIdentity) (bool, string) {
 			if nhi.Permissions == nil {
 				return false, ""
@@ -73,6 +74,7 @@ func ruleWildcardPermissions() Rule {
 		Severity:    SeverityHigh,
 		Score:       80,
 		AppliesTo:   []discovery.NHIType{discovery.NHITypeServiceAccount},
+		CISControls: []string{"5.1.3"},
 		Evaluate: func(nhi *discovery.NonHumanIdentity) (bool, string) {
 			if nhi.Permissions == nil {
 				return false, ""
@@ -102,6 +104,7 @@ func ruleDefaultSAHasBindings() Rule {
 		Severity:    SeverityHigh,
 		Score:       70,
 		AppliesTo:   []discovery.NHIType{discovery.NHITypeServiceAccount},
+		CISControls: []string{"5.1.5"},
 		Evaluate: func(nhi *discovery.NonHumanIdentity) (bool, string) {
 			if nhi.Name != "default" {
 				return false, ""
@@ -126,6 +129,7 @@ func ruleSecretAccessClusterWide() Rule {
 		Severity:    SeverityMedium,
 		Score:       60,
 		AppliesTo:   []discovery.NHIType{discovery.NHITypeServiceAccount},
+		CISControls: []string{"5.1.2"},
 		Evaluate: func(nhi *discovery.NonHumanIdentity) (bool, string) {
 			if nhi.Permissions == nil {
 				return false, ""
@@ -145,6 +149,7 @@ func ruleCrossNamespaceSecretAccess() Rule {
 		Severity:    SeverityMedium,
 		Score:       55,
 		AppliesTo:   []discovery.NHIType{discovery.NHITypeServiceAccount},
+		CISControls: []string{"5.1.2"},
 		Evaluate: func(nhi *discovery.NonHumanIdentity) (bool, string) {
 			if nhi.Permissions == nil {
 				return false, ""
@@ -164,6 +169,7 @@ func ruleAutomountTokenEnabled() Rule {
 		Severity:    SeverityLow,
 		Score:       20,
 		AppliesTo:   []discovery.NHIType{discovery.NHITypeServiceAccount},
+		CISControls: []string{"5.1.6"},
 		Evaluate: func(nhi *discovery.NonHumanIdentity) (bool, string) {
 			automount := nhi.Metadata["automount_token"]
 			if automount == "false" {
@@ -188,6 +194,7 @@ func ruleNoBindingsButAutomount() Rule {
 		Severity:    SeverityInfo,
 		Score:       10,
 		AppliesTo:   []discovery.NHIType{discovery.NHITypeServiceAccount},
+		CISControls: []string{"5.1.6"},
 		Evaluate: func(nhi *discovery.NonHumanIdentity) (bool, string) {
 			automount := nhi.Metadata["automount_token"]
 			if automount == "false" {
@@ -329,6 +336,7 @@ func ruleContainsPrivateKey() Rule {
 		Severity:    SeverityMedium,
 		Score:       55,
 		AppliesTo:   []discovery.NHIType{discovery.NHITypeSecretCredential},
+		CISControls: []string{"5.4.1"},
 		Evaluate: func(nhi *discovery.NonHumanIdentity) (bool, string) {
 			matched := make([]string, 0)
 			for _, key := range nhi.Keys {

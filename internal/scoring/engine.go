@@ -24,6 +24,9 @@ type Rule struct {
 	// An empty slice means the rule applies to all types.
 	AppliesTo []discovery.NHIType
 
+	// CISControls lists the CIS Kubernetes Benchmark controls this rule maps to (e.g., "5.1.2").
+	CISControls []string
+
 	// Evaluate checks whether the rule matches a given NHI.
 	// Returns (true, detail) if the rule matches, where detail provides
 	// context-specific information about the match.
@@ -37,6 +40,7 @@ type RuleResult struct {
 	Severity    Severity `json:"severity"`
 	Score       int      `json:"score"`
 	Detail      string   `json:"detail"`
+	CISControls []string `json:"cis_controls,omitempty"`
 }
 
 // ScoringResult holds the complete scoring for a single NHI.
@@ -88,6 +92,7 @@ func (e *Engine) Score(nhi *discovery.NonHumanIdentity) ScoringResult {
 			Severity:    rule.Severity,
 			Score:       rule.Score,
 			Detail:      detail,
+			CISControls: rule.CISControls,
 		}
 		result.Results = append(result.Results, rr)
 
