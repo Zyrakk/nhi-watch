@@ -52,6 +52,19 @@ const (
 	NHITypeCloudCredential NHIType = "cloud-credential"
 )
 
+// PodPosture captures the security-relevant configuration of a pod that
+// references a specific ServiceAccount. Used to assess workload risk.
+type PodPosture struct {
+	PodName     string `json:"pod_name"`
+	Namespace   string `json:"namespace"`
+	Privileged  bool   `json:"privileged"`
+	RunAsRoot   bool   `json:"run_as_root"`
+	HostNetwork bool   `json:"host_network"`
+	HostPID     bool   `json:"host_pid"`
+	HostIPC     bool   `json:"host_ipc"`
+	HostPath    bool   `json:"host_path"`
+}
+
 // NonHumanIdentity is the core model that represents any machine identity
 // discovered in the cluster. This struct is defined in the project description
 // and will be progressively enriched across phases.
@@ -116,6 +129,10 @@ type NonHumanIdentity struct {
 	// read this NHI's secrets. Only populated for secret-type NHIs
 	// (secret-credential, tls-cert) during Phase 2 permission resolution.
 	AccessibleBy []string `json:"accessible_by,omitempty"`
+
+	// PodPostures holds the security posture of pods that reference this
+	// ServiceAccount. Only populated for NHIs of type "service-account".
+	PodPostures []PodPosture `json:"pod_postures,omitempty"`
 
 	// --- Populated in later phases ---
 	// RiskScore   RiskScore    `json:"risk_score,omitempty"`  // Phase 3

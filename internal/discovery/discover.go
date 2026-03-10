@@ -135,6 +135,24 @@ func DiscoverAll(ctx context.Context, client kubernetes.Interface, dc discovery.
 
 	wg.Wait()
 
+	// Enrich ServiceAccount NHIs with pod posture data.
+	// This is non-fatal: if pod discovery fails, log a warning and continue.
+	opts.logf("[*] Discovering pod postures...")
+	postures, posErr := DiscoverPodPostures(ctx, client, opts.Namespace)
+	if posErr != nil {
+		opts.logf("[!] Warning: pod posture discovery failed: %v", posErr)
+	} else {
+		for i := range allNHIs {
+			if allNHIs[i].Type == NHITypeServiceAccount {
+				key := fmt.Sprintf("%s/%s", allNHIs[i].Namespace, allNHIs[i].Name)
+				if p, ok := postures[key]; ok {
+					allNHIs[i].PodPostures = p
+				}
+			}
+		}
+		opts.logf("[*] Pod posture enrichment complete")
+	}
+
 	// Apply type filter for secret subtypes (DiscoverSecrets returns mixed types).
 	if opts.TypeFilter != "" {
 		filtered := make([]NonHumanIdentity, 0)
