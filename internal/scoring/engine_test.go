@@ -314,6 +314,29 @@ func TestSeverityRank(t *testing.T) {
 	}
 }
 
+func TestParseSeverity(t *testing.T) {
+	tests := []struct {
+		input string
+		want  Severity
+	}{
+		{"critical", SeverityCritical},
+		{"CRITICAL", SeverityCritical},
+		{"Critical", SeverityCritical},
+		{"high", SeverityHigh},
+		{"medium", SeverityMedium},
+		{"low", SeverityLow},
+		{"info", SeverityInfo},
+		{"", ""},
+		{"invalid", ""},
+	}
+	for _, tt := range tests {
+		got := ParseSeverity(tt.input)
+		if got != tt.want {
+			t.Errorf("ParseSeverity(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
 // ── Posture multiplier integration with engine ───────────────────────
 
 func TestScore_PostureMultiplierBoostsScore(t *testing.T) {

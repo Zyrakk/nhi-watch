@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/Zyrakk/nhi-watch/internal/baseline"
 	"github.com/Zyrakk/nhi-watch/internal/discovery"
 	"github.com/Zyrakk/nhi-watch/internal/k8s"
 	"github.com/Zyrakk/nhi-watch/internal/permissions"
@@ -20,6 +21,9 @@ var (
 	auditSeverity    string
 	auditTypeFilter  string
 	auditRulesConfig string
+	auditFailOn      string
+	auditSaveBaseline string
+	auditBaseline    string
 )
 
 var auditCmd = &cobra.Command{
@@ -37,7 +41,12 @@ Combines all phases:
 Output formats:
   table     Terminal-friendly with severity grouping (default)
   json      Machine-readable for jq / SIEM integration
-  sarif     SARIF v2.1.0 for GitHub Security tab`,
+  sarif     SARIF v2.1.0 for GitHub Security tab
+
+CI/CD integration:
+  --fail-on high          Exit code 2 if findings >= HIGH severity
+  --save-baseline bl.json Save current results as baseline
+  --baseline bl.json      Only fail on new/regressed findings vs baseline`,
 	RunE: runAudit,
 }
 
@@ -45,6 +54,9 @@ func init() {
 	auditCmd.Flags().StringVar(&auditSeverity, "severity", "", "minimum severity to report: critical, high, medium, low, info")
 	auditCmd.Flags().StringVar(&auditTypeFilter, "type", "", "filter by NHI type (e.g. service-account, secret-credential)")
 	auditCmd.Flags().StringVar(&auditRulesConfig, "rules-config", "", "custom scoring rules file (not yet implemented)")
+	auditCmd.Flags().StringVar(&auditFailOn, "fail-on", "", "exit code 2 if findings at or above this severity (critical|high|medium|low)")
+	auditCmd.Flags().StringVar(&auditSaveBaseline, "save-baseline", "", "save current results as baseline to this file path")
+	auditCmd.Flags().StringVar(&auditBaseline, "baseline", "", "compare results against this baseline file (only new/regressed findings trigger --fail-on)")
 	rootCmd.AddCommand(auditCmd)
 }
 
@@ -197,6 +209,41 @@ func runAudit(cmd *cobra.Command, args []string) error {
 		// JSON/SARIF: ensure trailing newline for shell friendliness.
 		if len(out) > 0 && out[len(out)-1] != '\n' {
 			fmt.Fprintln(os.Stdout)
+		}
+	}
+
+	// ── CI/CD: Save baseline ─────────────────────────────────────────
+	if auditSaveBaseline != "" {
+		if err := baseline.Save(auditSaveBaseline, results, clusterName); err != nil {
+			return fmt.Errorf("saving baseline: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "Baseline saved to %s (%d findings)\n", auditSaveBaseline, len(results))
+	}
+
+	// ── CI/CD: Fail-on threshold ─────────────────────────────────────
+	if auditFailOn != "" {
+		failSev := scoring.ParseSeverity(auditFailOn)
+		if failSev == "" {
+			return fmt.Errorf("invalid severity for --fail-on: %q; valid values: critical, high, medium, low", auditFailOn)
+		}
+
+		if auditBaseline != "" {
+			bl, err := baseline.Load(auditBaseline)
+			if err != nil {
+				return fmt.Errorf("loading baseline: %w", err)
+			}
+			diff := baseline.Diff(results, bl)
+			if diff.HasFailures(failSev) {
+				return NewExitCodeError(2, "FAIL: %d new, %d regressed findings at %s or above",
+					len(diff.New), len(diff.Regressed), auditFailOn)
+			}
+		} else {
+			// No baseline: fail on any finding at threshold.
+			filtered := scoring.FilterBySeverity(results, failSev)
+			if len(filtered) > 0 {
+				return NewExitCodeError(2, "FAIL: %d findings at %s or above",
+					len(filtered), auditFailOn)
+			}
 		}
 	}
 
