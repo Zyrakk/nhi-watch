@@ -63,6 +63,7 @@ type PodPosture struct {
 	HostPID     bool   `json:"host_pid"`
 	HostIPC     bool   `json:"host_ipc"`
 	HostPath    bool   `json:"host_path"`
+	SCCName     string `json:"scc_name,omitempty"` // OpenShift SecurityContextConstraint
 }
 
 // NonHumanIdentity is the core model that represents any machine identity

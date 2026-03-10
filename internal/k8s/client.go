@@ -37,6 +37,21 @@ type Clients struct {
 	Discovery discovery.DiscoveryInterface
 }
 
+// IsOpenShift checks if the cluster is OpenShift by looking for the
+// security.openshift.io API group.
+func (c *Clients) IsOpenShift() bool {
+	groups, err := c.Discovery.ServerGroups()
+	if err != nil {
+		return false
+	}
+	for _, g := range groups.Groups {
+		if g.Name == "security.openshift.io" {
+			return true
+		}
+	}
+	return false
+}
+
 // NewClient returns a *kubernetes.Clientset configured from the given options.
 // It supports in-cluster, explicit kubeconfig, $KUBECONFIG, and the default
 // ~/.kube/config path, which makes it compatible with k3s, OpenShift, and
