@@ -20,12 +20,30 @@ fi
 
 FILENAME="nhi-watch_${VERSION#v}_${OS}_${ARCH}.tar.gz"
 URL="https://github.com/${REPO}/releases/download/${VERSION}/${FILENAME}"
+CHECKSUM_URL="https://github.com/${REPO}/releases/download/${VERSION}/checksums.txt"
 
 echo "Downloading nhi-watch ${VERSION} for ${OS}/${ARCH}..."
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
 curl -sL "$URL" -o "${TMPDIR}/${FILENAME}"
+curl -sL "$CHECKSUM_URL" -o "${TMPDIR}/checksums.txt"
+
+echo "Verifying SHA256 checksum..."
+EXPECTED=$(grep "${FILENAME}" "${TMPDIR}/checksums.txt" | awk '{print $1}')
+if [ -z "$EXPECTED" ]; then
+  echo "WARNING: checksum not found for ${FILENAME}, skipping verification" >&2
+else
+  ACTUAL=$(sha256sum "${TMPDIR}/${FILENAME}" | awk '{print $1}')
+  if [ "$EXPECTED" != "$ACTUAL" ]; then
+    echo "ERROR: SHA256 checksum mismatch!" >&2
+    echo "  Expected: $EXPECTED" >&2
+    echo "  Actual:   $ACTUAL" >&2
+    exit 1
+  fi
+  echo "Checksum verified."
+fi
+
 tar -xzf "${TMPDIR}/${FILENAME}" -C "$TMPDIR"
 
 echo "Installing to ${INSTALL_DIR}/nhi-watch..."
