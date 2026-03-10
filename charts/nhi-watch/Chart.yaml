@@ -1,0 +1,9 @@
+apiVersion: v2
+name: nhi-watch
+description: Kubernetes Non-Human Identity security auditor
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+maintainers:
+  - name: Zyrakk
+    url: https://github.com/Zyrakk
