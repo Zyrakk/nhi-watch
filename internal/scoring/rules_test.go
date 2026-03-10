@@ -573,6 +573,27 @@ func TestRule_CertExpires90D_NoMatch(t *testing.T) {
 //  Integration tests
 // ══════════════════════════════════════════════════════════════════════
 
+func TestAllRulesHaveCISMapping(t *testing.T) {
+	rules := DefaultRules()
+	rulesWithCIS := map[string]bool{
+		"CLUSTER_ADMIN_BINDING":         true, // 5.1.1
+		"WILDCARD_PERMISSIONS":          true, // 5.1.3
+		"DEFAULT_SA_HAS_BINDINGS":       true, // 5.1.5
+		"SECRET_ACCESS_CLUSTER_WIDE":    true, // 5.1.2
+		"CROSS_NAMESPACE_SECRET_ACCESS": true, // 5.1.2
+		"AUTOMOUNT_TOKEN_ENABLED":       true, // 5.1.6
+		"NO_BINDINGS_BUT_AUTOMOUNT":     true, // 5.1.6
+		"CONTAINS_PRIVATE_KEY":          true, // 5.4.1
+	}
+	for _, rule := range rules {
+		if rulesWithCIS[rule.ID] {
+			if len(rule.CISControls) == 0 {
+				t.Errorf("Rule %s should have CIS controls mapped", rule.ID)
+			}
+		}
+	}
+}
+
 func TestDefaultRules_Sanity(t *testing.T) {
 	rules := DefaultRules()
 
