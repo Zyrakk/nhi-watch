@@ -69,6 +69,9 @@ func extractPodPosture(pod *corev1.Pod) PodPosture {
 		}
 	}
 
+	// OpenShift SCC enrichment (safe on vanilla K8s — annotation just won't exist)
+	enrichWithSCC(&p, pod)
+
 	return p
 }
 
