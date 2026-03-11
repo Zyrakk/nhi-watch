@@ -18,12 +18,12 @@ import (
 )
 
 var (
-	auditSeverity    string
-	auditTypeFilter  string
-	auditRulesConfig string
-	auditFailOn      string
+	auditSeverity     string
+	auditTypeFilter   string
+	auditRulesConfig  string
+	auditFailOn       string
 	auditSaveBaseline string
-	auditBaseline    string
+	auditBaseline     string
 )
 
 var auditCmd = &cobra.Command{
@@ -208,7 +208,7 @@ func runAudit(cmd *cobra.Command, args []string) error {
 		_, _ = os.Stdout.Write(out)
 		// JSON/SARIF: ensure trailing newline for shell friendliness.
 		if len(out) > 0 && out[len(out)-1] != '\n' {
-			fmt.Fprintln(os.Stdout)
+			_, _ = fmt.Fprintln(os.Stdout)
 		}
 	}
 

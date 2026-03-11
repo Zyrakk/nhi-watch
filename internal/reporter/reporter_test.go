@@ -15,13 +15,13 @@ func makeTestReport() *AuditReport {
 		TotalNHIs:   42,
 		Results: []scoring.ScoringResult{
 			{
-				NHIID:         "abc123",
-				Name:          "admin-sa",
-				Namespace:     "kube-system",
-				Type:          "service-account",
-				FinalScore:    95,
-				BaseScore:     95,
-				FinalSeverity: scoring.SeverityCritical,
+				NHIID:             "abc123",
+				Name:              "admin-sa",
+				Namespace:         "kube-system",
+				Type:              "service-account",
+				FinalScore:        95,
+				BaseScore:         95,
+				FinalSeverity:     scoring.SeverityCritical,
 				PostureMultiplier: 1.0,
 				Results: []scoring.RuleResult{
 					{
@@ -36,13 +36,13 @@ func makeTestReport() *AuditReport {
 				Recommendation: "Remove the cluster-admin binding",
 			},
 			{
-				NHIID:         "def456",
-				Name:          "old-secret",
-				Namespace:     "default",
-				Type:          "secret-credential",
-				FinalScore:    75,
-				BaseScore:     75,
-				FinalSeverity: scoring.SeverityHigh,
+				NHIID:             "def456",
+				Name:              "old-secret",
+				Namespace:         "default",
+				Type:              "secret-credential",
+				FinalScore:        75,
+				BaseScore:         75,
+				FinalSeverity:     scoring.SeverityHigh,
 				PostureMultiplier: 1.0,
 				Results: []scoring.RuleResult{
 					{

@@ -87,7 +87,7 @@ func (r *TableReporter) Render(report *AuditReport) ([]byte, error) {
 
 	typeStats := scoring.CountByTypeAndSeverity(report.Results)
 	w := tabwriter.NewWriter(&buf, 0, 0, 2, ' ', 0)
-	fmt.Fprintf(w, "NHI Type\tCount\tCritical\tHigh\tMedium\tLow/Info\n")
+	_, _ = fmt.Fprintf(w, "NHI Type\tCount\tCritical\tHigh\tMedium\tLow/Info\n")
 
 	typeOrder := discovery.AllNHITypes()
 	totalCount := 0
@@ -108,7 +108,7 @@ func (r *TableReporter) Render(report *AuditReport) ([]byte, error) {
 		med := stats[scoring.SeverityMedium]
 		low := stats[scoring.SeverityLow] + stats[scoring.SeverityInfo]
 
-		fmt.Fprintf(w, "%s\t%d\t%d\t%d\t%d\t%d\n", ts, count, crit, high, med, low)
+		_, _ = fmt.Fprintf(w, "%s\t%d\t%d\t%d\t%d\t%d\n", ts, count, crit, high, med, low)
 
 		totalCount += count
 		totalCrit += crit
@@ -117,9 +117,9 @@ func (r *TableReporter) Render(report *AuditReport) ([]byte, error) {
 		totalLow += low
 	}
 
-	fmt.Fprintf(w, "─\t─\t─\t─\t─\t─\n")
-	fmt.Fprintf(w, "TOTAL\t%d\t%d\t%d\t%d\t%d\n", totalCount, totalCrit, totalHigh, totalMed, totalLow)
-	w.Flush()
+	_, _ = fmt.Fprintf(w, "─\t─\t─\t─\t─\t─\n")
+	_, _ = fmt.Fprintf(w, "TOTAL\t%d\t%d\t%d\t%d\t%d\n", totalCount, totalCrit, totalHigh, totalMed, totalLow)
+	_ = w.Flush()
 	fmt.Fprintln(&buf)
 
 	return buf.Bytes(), nil
