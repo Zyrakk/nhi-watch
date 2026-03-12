@@ -144,7 +144,7 @@ nhi-watch controller start
 nhi-watch controller start -n production
 
 # With audit webhook enabled (Layer 2)
-nhi-watch controller start --enable-webhook --webhook-port=9443
+nhi-watch controller start --enable-webhook --webhook-port=8443
 ```
 
 The controller detects:
@@ -309,12 +309,12 @@ See `charts/nhi-watch/values.yaml` for all controller options including debounce
 | Rule ID | CIS | Score | Description |
 |---------|-----|-------|-------------|
 | `CLUSTER_ADMIN_BINDING` | 5.1.1 | 95 | SA bound to cluster-admin |
-| `DEFAULT_SA_HAS_BINDINGS` | 5.1.5 | 85 | Default SA has additional bindings |
+| `DEFAULT_SA_HAS_BINDINGS` | 5.1.5 | 70 | Default SA has additional bindings |
 | `WILDCARD_PERMISSIONS` | 5.1.3 | 80 | Wildcard (`*`) in verbs or resources |
-| `SECRET_ACCESS_CLUSTER_WIDE` | 5.1.2 | 70 | Can read Secrets cluster-wide |
-| `CROSS_NAMESPACE_SECRET_ACCESS` | — | 65 | Can read Secrets outside its namespace |
-| `AUTOMOUNT_TOKEN_ENABLED` | 5.1.6 | 30 | automountServiceAccountToken not disabled |
-| `NO_BINDINGS_BUT_AUTOMOUNT` | — | 20 | No bindings but automount is on |
+| `SECRET_ACCESS_CLUSTER_WIDE` | 5.1.2 | 60 | Can read Secrets cluster-wide |
+| `CROSS_NAMESPACE_SECRET_ACCESS` | — | 55 | Can read Secrets outside its namespace |
+| `AUTOMOUNT_TOKEN_ENABLED` | 5.1.6 | 20 | automountServiceAccountToken not disabled |
+| `NO_BINDINGS_BUT_AUTOMOUNT` | — | 10 | No bindings but automount is on |
 
 **Secret rules:**
 
@@ -323,17 +323,17 @@ See `charts/nhi-watch/values.yaml` for all controller options including debounce
 | `TLS_CERT_EXPIRED` | 95 | TLS certificate is expired |
 | `SECRET_NOT_ROTATED_180D` | 90 | Secret not rotated in 180+ days |
 | `SECRET_NOT_ROTATED_90D` | 75 | Secret not rotated in 90+ days |
-| `TLS_CERT_EXPIRES_30D` | 75 | TLS certificate expires within 30 days |
-| `CONTAINS_PRIVATE_KEY` | 60 | Secret contains a private key |
-| `TLS_CERT_EXPIRES_90D` | 45 | TLS certificate expires within 90 days |
+| `TLS_CERT_EXPIRES_30D` | 70 | TLS certificate expires within 30 days |
+| `CONTAINS_PRIVATE_KEY` | 55 | Secret contains a private key |
+| `TLS_CERT_EXPIRES_90D` | 50 | TLS certificate expires within 90 days |
 
 **cert-manager rules:**
 
 | Rule ID | Score | Description |
 |---------|-------|-------------|
-| `CERT_NOT_READY` | 80 | Certificate is not in Ready state |
+| `CERT_NOT_READY` | 75 | Certificate is not in Ready state |
 | `CERT_EXPIRES_30D` | 70 | Certificate expires within 30 days |
-| `CERT_EXPIRES_90D` | 40 | Certificate expires within 90 days |
+| `CERT_EXPIRES_90D` | 50 | Certificate expires within 90 days |
 
 **Behavioral rules (v2.0):**
 
