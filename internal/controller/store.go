@@ -1,3 +1,4 @@
+// Package controller implements the NHI-Watch real-time monitoring controller.
 package controller
 
 import (
