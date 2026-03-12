@@ -21,18 +21,13 @@ import (
 	"github.com/Zyrakk/nhi-watch/internal/scoring"
 )
 
-// MutationEvent records a resource mutation detected by informers.
-type MutationEvent struct {
-	ResourceType string
-	Action       string // "Added", "Updated", "Deleted"
-	Name         string
-	Namespace    string
-	Timestamp    time.Time
-}
-
 // EventCallback is called by the controller to notify consumers about
 // lifecycle events (scan.starting, scan.complete, mutation.detected, etc.).
 type EventCallback func(event string, detail string)
+
+// resyncPeriod is the interval at which informers re-list from the API server
+// to reconcile any missed events.
+const resyncPeriod = 5 * time.Minute
 
 // Controller watches Kubernetes resources via informers and triggers
 // debounced re-scans when mutations are detected.
@@ -41,8 +36,11 @@ type Controller struct {
 	dynClient dynamic.Interface
 	store     *StateStore
 	factory   informers.SharedInformerFactory
-	callback  EventCallback
-	namespace string // "" = all namespaces
+	// crbFactory is a separate unfiltered factory for ClusterRoleBindings,
+	// which are cluster-scoped and must not be constrained by a namespace filter.
+	crbFactory informers.SharedInformerFactory
+	callback   EventCallback
+	namespace  string // "" = all namespaces
 
 	debounceMu    sync.Mutex
 	debounceTimer *time.Timer
@@ -80,45 +78,64 @@ func (c *Controller) Start(ctx context.Context) error {
 		// state may be incomplete but mutations will trigger re-scans.
 	}
 
-	// Set up informer factory. For namespace-scoped resources, we use the
-	// configured namespace filter. ClusterRoleBindings are cluster-scoped
-	// and always watched.
+	// Set up informer factory for namespace-scoped resources.
 	if c.namespace != "" {
 		c.factory = informers.NewSharedInformerFactoryWithOptions(
-			c.client, 0, informers.WithNamespace(c.namespace),
+			c.client, resyncPeriod, informers.WithNamespace(c.namespace),
 		)
 	} else {
-		c.factory = informers.NewSharedInformerFactory(c.client, 0)
+		c.factory = informers.NewSharedInformerFactory(c.client, resyncPeriod)
 	}
+
+	// ClusterRoleBindings are cluster-scoped — always use a separate unfiltered
+	// factory so they are not constrained by a namespace filter.
+	c.crbFactory = informers.NewSharedInformerFactory(c.client, resyncPeriod)
 
 	// Register event handlers for watched resource types.
 	handler := cache.ResourceEventHandlerFuncs{
 		AddFunc:    func(obj interface{}) { c.onMutation("Added", obj) },
 		UpdateFunc: func(_, obj interface{}) { c.onMutation("Updated", obj) },
-		DeleteFunc: func(obj interface{}) { c.onMutation("Deleted", obj) },
+		DeleteFunc: func(obj interface{}) {
+			// Handle tombstone objects for resources deleted while the
+			// informer cache was out of sync.
+			if tombstone, ok := obj.(cache.DeletedFinalStateUnknown); ok {
+				obj = tombstone.Obj
+			}
+			c.onMutation("Deleted", obj)
+		},
 	}
 
 	// ServiceAccounts
 	saInformer := c.factory.Core().V1().ServiceAccounts().Informer()
-	saInformer.AddEventHandler(handler)
+	if _, err := saInformer.AddEventHandler(handler); err != nil {
+		return fmt.Errorf("registering ServiceAccount handler: %w", err)
+	}
 
 	// Secrets
 	secretInformer := c.factory.Core().V1().Secrets().Informer()
-	secretInformer.AddEventHandler(handler)
+	if _, err := secretInformer.AddEventHandler(handler); err != nil {
+		return fmt.Errorf("registering Secret handler: %w", err)
+	}
 
 	// RoleBindings
 	rbInformer := c.factory.Rbac().V1().RoleBindings().Informer()
-	rbInformer.AddEventHandler(handler)
+	if _, err := rbInformer.AddEventHandler(handler); err != nil {
+		return fmt.Errorf("registering RoleBinding handler: %w", err)
+	}
 
-	// ClusterRoleBindings (cluster-scoped, always watched regardless of namespace filter)
-	crbInformer := c.factory.Rbac().V1().ClusterRoleBindings().Informer()
-	crbInformer.AddEventHandler(handler)
+	// ClusterRoleBindings (cluster-scoped, via separate unfiltered factory)
+	crbInformer := c.crbFactory.Rbac().V1().ClusterRoleBindings().Informer()
+	if _, err := crbInformer.AddEventHandler(handler); err != nil {
+		return fmt.Errorf("registering ClusterRoleBinding handler: %w", err)
+	}
 
-	// Start all informers.
+	// Start both factories.
 	c.factory.Start(c.stopCh)
+	c.crbFactory.Start(c.stopCh)
 
 	// Wait for caches to sync before processing events.
 	c.factory.WaitForCacheSync(c.stopCh)
+	c.crbFactory.WaitForCacheSync(c.stopCh)
 
 	c.callback("controller.started", fmt.Sprintf("namespace=%q", c.namespace))
 
@@ -177,8 +194,9 @@ func (c *Controller) scheduleRescan() {
 	}
 
 	if c.debounceDur == 0 {
-		// Immediate mode (tests): run scan synchronously.
-		ctx := context.Background()
+		// Immediate mode (tests): run scan synchronously with short timeout.
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
 		if err := c.runScan(ctx); err != nil {
 			c.callback("scan.error", err.Error())
 		}
@@ -186,7 +204,8 @@ func (c *Controller) scheduleRescan() {
 	}
 
 	c.debounceTimer = time.AfterFunc(c.debounceDur, func() {
-		ctx := context.Background()
+		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+		defer cancel()
 		if err := c.runScan(ctx); err != nil {
 			c.callback("scan.error", err.Error())
 		}
