@@ -6,9 +6,17 @@ import (
 	"github.com/Zyrakk/nhi-watch/internal/discovery"
 )
 
-// GenerateYAML returns a remediation YAML proposal for known workloads.
-// Returns empty string for unknown workloads (text recommendations only).
+// GenerateYAML returns a remediation YAML proposal. When usage data is
+// available, it generates precise least-privilege RBAC from observed API
+// calls. Otherwise it falls back to heuristic templates for known workloads.
+// Returns empty string for unknown workloads without usage data.
 func GenerateYAML(nhi *discovery.NonHumanIdentity) (string, error) {
+	// Try usage-based first — precise RBAC from observed API calls
+	if nhi.UsageProfile != nil && len(nhi.UsageProfile.Records) > 0 {
+		return renderFromUsage(nhi)
+	}
+
+	// Fall back to heuristic template
 	tmpl := matchTemplate(nhi)
 	if tmpl == nil {
 		return "", nil
