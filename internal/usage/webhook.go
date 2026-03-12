@@ -60,7 +60,11 @@ func NewAuditWebhookSource(store *ProfileStore) *AuditWebhookSource {
 }
 
 // LoadExisting hydrates in-memory profiles from the ConfigMap-backed store.
+// If no store was configured (nil), this is a no-op.
 func (s *AuditWebhookSource) LoadExisting(ctx context.Context) error {
+	if s.store == nil {
+		return nil
+	}
 	loaded, err := s.store.Load(ctx)
 	if err != nil {
 		return fmt.Errorf("loading existing profiles: %w", err)
@@ -109,11 +113,18 @@ func (s *AuditWebhookSource) Handler() http.Handler {
 }
 
 // Persist saves the current in-memory profiles to the ConfigMap-backed store.
+// If no store was configured (nil), this is a no-op.
 func (s *AuditWebhookSource) Persist(ctx context.Context) error {
+	if s.store == nil {
+		return nil
+	}
 	s.mu.RLock()
 	snapshot := make(map[string]*UsageProfile, len(s.profiles))
 	for k, v := range s.profiles {
-		snapshot[k] = v
+		cp := *v
+		cp.Records = make([]UsageRecord, len(v.Records))
+		copy(cp.Records, v.Records)
+		snapshot[k] = &cp
 	}
 	s.mu.RUnlock()
 	return s.store.Save(ctx, snapshot)
@@ -129,7 +140,8 @@ func (s *AuditWebhookSource) GetProfile(_ context.Context, namespace, serviceAcc
 	if !ok {
 		return nil, nil
 	}
-	return p, nil
+	cp := *p
+	return &cp, nil
 }
 
 // ListProfiles returns all known usage profiles.
