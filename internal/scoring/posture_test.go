@@ -28,13 +28,24 @@ func TestCalculatePostureMultiplier_NoPods(t *testing.T) {
 }
 
 func TestCalculatePostureMultiplier_RestrictedPod(t *testing.T) {
-	// A pod with no risky flags should return 1.0.
+	// A pod with no risky flags but no egress restriction → 1.10.
 	postures := []discovery.PodPosture{
 		{PodName: "safe-pod", Namespace: "default"},
 	}
 	m := CalculatePostureMultiplier(postures)
+	if !floatEqual(m, 1.10) {
+		t.Errorf("expected 1.10 for pod without egress restriction, got %f", m)
+	}
+}
+
+func TestCalculatePostureMultiplier_TrulyRestrictedPod(t *testing.T) {
+	// A pod with no risky flags AND egress restriction → 1.0.
+	postures := []discovery.PodPosture{
+		{PodName: "safe-pod", Namespace: "default", HasEgressRestriction: true},
+	}
+	m := CalculatePostureMultiplier(postures)
 	if m != 1.0 {
-		t.Errorf("expected 1.0 for restricted pod, got %f", m)
+		t.Errorf("expected 1.0 for truly restricted pod, got %f", m)
 	}
 }
 
@@ -46,9 +57,9 @@ func TestCalculatePostureMultiplier_PrivilegedPod(t *testing.T) {
 	if m <= 1.0 {
 		t.Errorf("expected multiplier > 1.0 for privileged pod, got %f", m)
 	}
-	// Privileged alone should add 0.20 → 1.20
-	if !floatEqual(m, 1.20) {
-		t.Errorf("expected 1.20 for privileged-only pod, got %f", m)
+	// Privileged (+0.20) + no egress restriction (+0.10) → 1.30
+	if !floatEqual(m, 1.30) {
+		t.Errorf("expected 1.30 for privileged pod without egress restriction, got %f", m)
 	}
 }
 
@@ -65,11 +76,11 @@ func TestCalculatePostureMultiplier_FullHostAccess(t *testing.T) {
 		},
 	}
 	m := CalculatePostureMultiplier(postures)
-	// 1.0 + 0.20 (privileged) + 0.10 (hostPID) + 0.05 (hostNetwork) + 0.05 (hostPath) + 0.05 (runAsRoot) = 1.45
+	// 1.0 + 0.20 (privileged) + 0.10 (hostPID) + 0.05 (hostNetwork) + 0.05 (hostPath) + 0.05 (runAsRoot) + 0.10 (noEgressRestriction) = 1.55
 	if m < 1.3 {
 		t.Errorf("expected multiplier >= 1.3 for full host access, got %f", m)
 	}
-	expected := 1.45
+	expected := 1.55
 	if !floatEqual(m, expected) {
 		t.Errorf("expected %f for full host access pod, got %f", expected, m)
 	}
@@ -89,8 +100,8 @@ func TestCalculatePostureMultiplier_AllFlags(t *testing.T) {
 		},
 	}
 	m := CalculatePostureMultiplier(postures)
-	// 1.0 + 0.20 + 0.10 + 0.05 + 0.05 + 0.05 + 0.05 = 1.50
-	expected := 1.50
+	// 1.0 + 0.20 + 0.10 + 0.05 + 0.05 + 0.05 + 0.05 + 0.10 (noEgressRestriction) = 1.60
+	expected := 1.60
 	if !floatEqual(m, expected) {
 		t.Errorf("expected %f for all-flags pod, got %f", expected, m)
 	}
@@ -106,8 +117,8 @@ func TestCalculatePostureMultiplier_WorstPodWins(t *testing.T) {
 		{PodName: "worst-pod", Namespace: "default", Privileged: true, HostPID: true},
 	}
 	m := CalculatePostureMultiplier(postures)
-	// Worst pod: 1.0 + 0.20 + 0.10 = 1.30
-	expected := 1.30
+	// Worst pod: 1.0 + 0.20 + 0.10 + 0.10 (noEgressRestriction) = 1.40
+	expected := 1.40
 	if !floatEqual(m, expected) {
 		t.Errorf("expected worst pod multiplier %f, got %f", expected, m)
 	}
@@ -118,8 +129,9 @@ func TestCalculatePostureMultiplier_HostIPCOnly(t *testing.T) {
 		{PodName: "ipc-pod", Namespace: "default", HostIPC: true},
 	}
 	m := CalculatePostureMultiplier(postures)
-	if m != 1.05 {
-		t.Errorf("expected 1.05 for hostIPC-only pod, got %f", m)
+	// hostIPC (+0.05) + noEgressRestriction (+0.10) = 1.15
+	if !floatEqual(m, 1.15) {
+		t.Errorf("expected 1.15 for hostIPC pod without egress restriction, got %f", m)
 	}
 }
 

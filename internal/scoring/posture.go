@@ -36,6 +36,13 @@ func CalculatePostureMultiplier(postures []discovery.PodPosture) float64 {
 		if p.RunAsRoot {
 			m += 0.05
 		}
+		// Unrestricted egress = higher risk.
+		// Only penalize if we have pod posture data and no restriction was found.
+		// HasEgressRestriction=false is the default, so only apply when we've
+		// actively checked (indicated by the posture having a PodName).
+		if p.PodName != "" && !p.HasEgressRestriction {
+			m += 0.10
+		}
 		if m > worst {
 			worst = m
 		}
@@ -82,6 +89,9 @@ func postureDetail(postures []discovery.PodPosture) string {
 		if p.RunAsRoot {
 			m += 0.05
 		}
+		if p.PodName != "" && !p.HasEgressRestriction {
+			m += 0.10
+		}
 		if m > worstScore {
 			worstScore = m
 			worst = p
@@ -92,7 +102,7 @@ func postureDetail(postures []discovery.PodPosture) string {
 		return ""
 	}
 
-	flags := make([]string, 0, 6)
+	flags := make([]string, 0, 7)
 	if worst.Privileged {
 		flags = append(flags, "privileged")
 	}
@@ -110,6 +120,9 @@ func postureDetail(postures []discovery.PodPosture) string {
 	}
 	if worst.RunAsRoot {
 		flags = append(flags, "runAsRoot")
+	}
+	if worst.PodName != "" && !worst.HasEgressRestriction {
+		flags = append(flags, "noEgressRestriction")
 	}
 
 	podRef := worst.PodName

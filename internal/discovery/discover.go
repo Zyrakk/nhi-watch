@@ -153,6 +153,26 @@ func DiscoverAll(ctx context.Context, client kubernetes.Interface, dc discovery.
 		opts.logf("[*] Pod posture enrichment complete")
 	}
 
+	// Enrich pod postures with NetworkPolicy egress restriction data.
+	opts.logf("[*] Checking NetworkPolicy egress restrictions...")
+	egressRestrictions, egressErr := DiscoverEgressRestrictions(ctx, client, opts.Namespace)
+	if egressErr != nil {
+		opts.logf("[!] Warning: NetworkPolicy discovery failed: %v", egressErr)
+	} else {
+		for i := range allNHIs {
+			if allNHIs[i].Type != NHITypeServiceAccount {
+				continue
+			}
+			key := fmt.Sprintf("%s/%s", allNHIs[i].Namespace, allNHIs[i].Name)
+			if egressRestrictions[key] {
+				for j := range allNHIs[i].PodPostures {
+					allNHIs[i].PodPostures[j].HasEgressRestriction = true
+				}
+			}
+		}
+		opts.logf("[*] NetworkPolicy enrichment complete")
+	}
+
 	// Apply type filter for secret subtypes (DiscoverSecrets returns mixed types).
 	if opts.TypeFilter != "" {
 		filtered := make([]NonHumanIdentity, 0)
