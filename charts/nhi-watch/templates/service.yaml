@@ -1,0 +1,22 @@
+{{- if and .Values.controller.enabled .Values.controller.webhook.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-nhi-watch-webhook
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: nhi-watch
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: webhook
+      port: {{ .Values.controller.webhook.port }}
+      targetPort: {{ .Values.controller.webhook.port }}
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: nhi-watch
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}

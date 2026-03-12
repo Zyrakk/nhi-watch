@@ -1,0 +1,12 @@
+{{- if .Values.controller.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.controller.stateConfigMap }}
+  namespace: {{ .Values.controller.stateNamespace | default .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: nhi-watch
+    app.kubernetes.io/component: controller-state
+    app.kubernetes.io/instance: {{ .Release.Name }}
+data: {}
+{{- end }}

@@ -19,3 +19,21 @@ serviceAccount:
   create: true
   name: nhi-watch
   annotations: {}
+
+# Controller mode: real-time NHI monitoring via informers + optional audit webhook.
+controller:
+  enabled: false
+  replicas: 1
+  debounceSeconds: 5
+  webhook:
+    enabled: false
+    port: 8443
+  stateNamespace: ""  # defaults to release namespace
+  stateConfigMap: nhi-watch-state
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
