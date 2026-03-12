@@ -108,10 +108,15 @@ func (s *StateStore) SaveSnapshots(ctx context.Context, snapshots []NHISnapshot)
 		}
 	}
 
+	startedAt := prev.StartedAt
+	if startedAt == "" {
+		startedAt = now
+	}
+
 	sd := StateData{
 		Version:   "v2",
 		LastScan:  now,
-		StartedAt: prev.StartedAt,
+		StartedAt: startedAt,
 		ScanCount: prev.ScanCount + 1,
 		Snapshots: snapshots,
 	}
