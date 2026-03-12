@@ -312,9 +312,9 @@ See `charts/nhi-watch/values.yaml` for all controller options including debounce
 | `DEFAULT_SA_HAS_BINDINGS` | 5.1.5 | 70 | Default SA has additional bindings |
 | `WILDCARD_PERMISSIONS` | 5.1.3 | 80 | Wildcard (`*`) in verbs or resources |
 | `SECRET_ACCESS_CLUSTER_WIDE` | 5.1.2 | 60 | Can read Secrets cluster-wide |
-| `CROSS_NAMESPACE_SECRET_ACCESS` | — | 55 | Can read Secrets outside its namespace |
+| `CROSS_NAMESPACE_SECRET_ACCESS` | 5.1.2 | 55 | Can read Secrets outside its namespace |
 | `AUTOMOUNT_TOKEN_ENABLED` | 5.1.6 | 20 | automountServiceAccountToken not disabled |
-| `NO_BINDINGS_BUT_AUTOMOUNT` | — | 10 | No bindings but automount is on |
+| `NO_BINDINGS_BUT_AUTOMOUNT` | 5.1.6 | 10 | No bindings but automount is on |
 
 **Secret rules:**
 
