@@ -45,7 +45,13 @@ spec:
           livenessProbe:
             httpGet:
               path: /healthz
-              port: {{ .Values.controller.webhook.port }}
+              port: webhook
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          {{- else }}
+          livenessProbe:
+            exec:
+              command: ["/bin/sh", "-c", "kill -0 1"]
             initialDelaySeconds: 10
             periodSeconds: 30
           {{- end }}
