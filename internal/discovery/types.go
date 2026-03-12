@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Zyrakk/nhi-watch/internal/models"
+	"github.com/Zyrakk/nhi-watch/internal/usage"
 )
 
 // staleDays is the threshold (in days) after which a credential is
@@ -135,6 +136,11 @@ type NonHumanIdentity struct {
 	// PodPostures holds the security posture of pods that reference this
 	// ServiceAccount. Only populated for NHIs of type "service-account".
 	PodPostures []PodPosture `json:"pod_postures,omitempty"`
+
+	// UsageProfile holds observed API usage data for this ServiceAccount.
+	// Only populated when usage data is available (v2.0 audit webhook).
+	// nil = no usage data available (do not assert inactivity).
+	UsageProfile *usage.UsageProfile `json:"usage_profile,omitempty"`
 
 	// --- Populated in later phases ---
 	// RiskScore   RiskScore    `json:"risk_score,omitempty"`  // Phase 3

@@ -597,8 +597,8 @@ func TestAllRulesHaveCISMapping(t *testing.T) {
 func TestDefaultRules_Sanity(t *testing.T) {
 	rules := DefaultRules()
 
-	if len(rules) != 16 {
-		t.Errorf("expected 16 default rules, got %d", len(rules))
+	if len(rules) != 18 {
+		t.Errorf("expected 18 default rules, got %d", len(rules))
 	}
 
 	// Check no duplicate IDs.

@@ -35,6 +35,9 @@ var recommendationMap = map[string]string{
 	"CERT_EXPIRES_30D": "The cert-manager Certificate expires within 30 days. Verify renewBefore is configured and cert-manager is healthy.",
 
 	"CERT_EXPIRES_90D": "The cert-manager Certificate expires within 90 days. Verify the renewal pipeline is functional.",
+
+	"INACTIVE_NHI_HIGH":   "Remove or disable this ServiceAccount — it has not made any API calls in 30+ days. If still needed, review its RBAC bindings and reduce permissions to minimum required.",
+	"INACTIVE_NHI_MEDIUM": "Monitor this ServiceAccount — no API calls observed yet, but observation period is short (7-29 days). If unused after 30 days, consider removal.",
 }
 
 // GenerateRecommendation creates a combined recommendation from multiple rule results.

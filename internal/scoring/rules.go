@@ -11,9 +11,9 @@ import (
 // nowFunc returns the current time. Override in tests for deterministic results.
 var nowFunc = time.Now
 
-// DefaultRules returns the 16 built-in scoring rules for Phase 3.
+// DefaultRules returns the built-in scoring rules.
 func DefaultRules() []Rule {
-	return []Rule{
+	rules := []Rule{
 		// ── ServiceAccount rules (7) ──────────────────────────────────
 		ruleClusterAdminBinding(),
 		ruleWildcardPermissions(),
@@ -36,6 +36,11 @@ func DefaultRules() []Rule {
 		ruleCertExpires30D(),
 		ruleCertExpires90D(),
 	}
+
+	// ── Inactive NHI rules (2) — require usage data ───────────────
+	rules = append(rules, InactiveRules()...)
+
+	return rules
 }
 
 // ══════════════════════════════════════════════════════════════════════
