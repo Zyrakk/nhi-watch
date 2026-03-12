@@ -141,6 +141,8 @@ func (s *AuditWebhookSource) GetProfile(_ context.Context, namespace, serviceAcc
 		return nil, nil
 	}
 	cp := *p
+	cp.Records = make([]UsageRecord, len(p.Records))
+	copy(cp.Records, p.Records)
 	return &cp, nil
 }
 

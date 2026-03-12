@@ -48,12 +48,6 @@ spec:
               port: webhook
             initialDelaySeconds: 10
             periodSeconds: 30
-          {{- else }}
-          livenessProbe:
-            exec:
-              command: ["/bin/sh", "-c", "kill -0 1"]
-            initialDelaySeconds: 10
-            periodSeconds: 30
           {{- end }}
           resources:
             {{- toYaml .Values.controller.resources | nindent 12 }}
