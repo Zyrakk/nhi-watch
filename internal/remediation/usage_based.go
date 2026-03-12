@@ -112,48 +112,69 @@ func renderFromUsage(nhi *discovery.NonHumanIdentity) (string, error) {
 }
 
 // calculateReduction estimates the percentage of current permissions not
-// observed in usage. It expands wildcard verbs ("*") to the 6 standard verbs,
-// counts unique verb+resource pairs in both current and observed sets, and
-// returns (unused / total) * 100.
+// observed in usage. It expands wildcard verbs ("*") to the 6 standard verbs
+// and handles wildcard resources ("*") by matching any observed resource for
+// that verb. Returns (unused / total) * 100.
 func calculateReduction(current []models.ResolvedRule, observed []usage.UsageRecord) int {
-	// Build set of current verb+resource pairs
-	currentPairs := make(map[string]bool)
+	// Build set of current verb+resource pairs, tracking wildcard resources
+	// separately. A wildcard resource means the verb grants access to all
+	// resources, so any observed pair with that verb should count as matched.
+	currentPairs := make(map[string]bool) // explicit verb/resource pairs
+	wildcardVerbs := make(map[string]bool) // verbs that have resource "*"
+
 	for _, rule := range current {
 		verbs := rule.Verbs
-		// Expand wildcard verb
 		if containsString(verbs, "*") {
 			verbs = standardVerbs
 		}
-		resources := rule.Resources
-		// Expand wildcard resource: we can't enumerate all resources, so
-		// we treat "*" as a single entry for counting purposes. The
-		// reduction will be conservative (undercount current permissions).
 		for _, v := range verbs {
-			for _, r := range resources {
-				currentPairs[v+"/"+r] = true
+			for _, r := range rule.Resources {
+				if r == "*" {
+					wildcardVerbs[v] = true
+				} else {
+					currentPairs[v+"/"+r] = true
+				}
 			}
 		}
 	}
 
-	if len(currentPairs) == 0 {
+	// Total permission count: each explicit pair counts as 1, each wildcard
+	// verb counts as 1 (representing unbounded resource access for that verb).
+	totalCurrent := len(currentPairs) + len(wildcardVerbs)
+	if totalCurrent == 0 {
 		return 0
 	}
 
 	// Build set of observed verb+resource pairs
 	observedPairs := make(map[string]bool)
+	observedVerbs := make(map[string]bool)
 	for _, rec := range observed {
 		observedPairs[rec.Verb+"/"+rec.Resource] = true
+		observedVerbs[rec.Verb] = true
 	}
 
-	// Count how many current pairs are NOT in observed
-	unused := 0
+	// Count matched permissions
+	matched := 0
+
+	// Explicit pairs: direct match
 	for pair := range currentPairs {
-		if !observedPairs[pair] {
-			unused++
+		if observedPairs[pair] {
+			matched++
 		}
 	}
 
-	return (unused * 100) / len(currentPairs)
+	// Wildcard verbs: matched if any observed record uses that verb
+	for v := range wildcardVerbs {
+		if observedVerbs[v] {
+			matched++
+		}
+	}
+
+	unused := totalCurrent - matched
+	if unused < 0 {
+		unused = 0
+	}
+	return (unused * 100) / totalCurrent
 }
 
 // sortedKeys returns the keys of a map[string]bool sorted alphabetically.

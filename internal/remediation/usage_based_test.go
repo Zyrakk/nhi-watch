@@ -72,6 +72,16 @@ func TestRenderFromUsage_GroupsByAPIGroup(t *testing.T) {
 		Name:      "cert-manager",
 		Namespace: "cert-manager",
 		Type:      discovery.NHITypeServiceAccount,
+		Permissions: &models.PermissionSet{
+			Rules: []models.ResolvedRule{
+				{
+					APIGroups: []string{"", "cert-manager.io"},
+					Resources: []string{"*"},
+					Verbs:     []string{"*"},
+					Source:    "cluster-admin",
+				},
+			},
+		},
 		UsageProfile: &usage.UsageProfile{
 			ServiceAccount:  "cert-manager",
 			Namespace:       "cert-manager",
@@ -103,6 +113,11 @@ func TestRenderFromUsage_GroupsByAPIGroup(t *testing.T) {
 	count := strings.Count(yaml, "apiGroups:")
 	if count != 2 {
 		t.Errorf("expected 2 apiGroups rules, got %d", count)
+	}
+
+	// With Permissions present, reduction line should appear
+	if !strings.Contains(yaml, "reduction") {
+		t.Error("output must contain reduction percentage when Permissions is set")
 	}
 }
 
@@ -147,32 +162,90 @@ func TestRenderFromUsage_EmptyRecords(t *testing.T) {
 }
 
 func TestCalculateReduction(t *testing.T) {
-	// Current: 4 resources with wildcard verbs = 4 * 6 = 24 pairs
-	current := []models.ResolvedRule{
-		{
-			APIGroups: []string{""},
-			Resources: []string{"pods", "services", "endpoints", "secrets"},
-			Verbs:     []string{"*"},
-			Source:    "some-role",
-		},
-	}
+	t.Run("wildcard_verbs_explicit_resources", func(t *testing.T) {
+		// Current: 4 explicit resources with wildcard verbs = 4 * 6 = 24 pairs
+		current := []models.ResolvedRule{
+			{
+				APIGroups: []string{""},
+				Resources: []string{"pods", "services", "endpoints", "secrets"},
+				Verbs:     []string{"*"},
+				Source:    "some-role",
+			},
+		}
 
-	// Observed: only 2 verb+resource pairs
-	observed := []usage.UsageRecord{
-		{Verb: "get", Resource: "services", APIGroup: ""},
-		{Verb: "list", Resource: "endpoints", APIGroup: ""},
-	}
+		// Observed: only 2 verb+resource pairs
+		observed := []usage.UsageRecord{
+			{Verb: "get", Resource: "services", APIGroup: ""},
+			{Verb: "list", Resource: "endpoints", APIGroup: ""},
+		}
 
-	reduction := calculateReduction(current, observed)
+		reduction := calculateReduction(current, observed)
 
-	// 24 total pairs, 2 observed -> 22 unused -> 22/24*100 = 91%
-	if reduction <= 0 {
-		t.Errorf("expected positive reduction, got %d", reduction)
-	}
+		// 24 total pairs, 2 observed -> 22 unused -> 22/24*100 = 91%
+		if reduction <= 0 {
+			t.Errorf("expected positive reduction, got %d", reduction)
+		}
 
-	// Should be ~91% (22/24 = 91.6..., truncated to 91)
-	expected := 91
-	if reduction != expected {
-		t.Errorf("expected reduction of %d%%, got %d%%", expected, reduction)
-	}
+		expected := 91
+		if reduction != expected {
+			t.Errorf("expected reduction of %d%%, got %d%%", expected, reduction)
+		}
+	})
+
+	t.Run("explicit_verbs_explicit_resources", func(t *testing.T) {
+		// Current: 3 resources with 2 explicit verbs = 6 pairs
+		current := []models.ResolvedRule{
+			{
+				APIGroups: []string{""},
+				Resources: []string{"pods", "services", "secrets"},
+				Verbs:     []string{"get", "list"},
+				Source:    "read-role",
+			},
+		}
+
+		// Observed: 2 of the 6 pairs
+		observed := []usage.UsageRecord{
+			{Verb: "get", Resource: "pods", APIGroup: ""},
+			{Verb: "list", Resource: "services", APIGroup: ""},
+		}
+
+		reduction := calculateReduction(current, observed)
+
+		// 6 total, 2 matched -> 4 unused -> 4/6*100 = 66%
+		expected := 66
+		if reduction != expected {
+			t.Errorf("expected reduction of %d%%, got %d%%", expected, reduction)
+		}
+	})
+
+	t.Run("wildcard_resources_matches_observed", func(t *testing.T) {
+		// Current: wildcard resources with wildcard verbs -> 6 wildcard-verb entries
+		current := []models.ResolvedRule{
+			{
+				APIGroups: []string{""},
+				Resources: []string{"*"},
+				Verbs:     []string{"*"},
+				Source:    "cluster-admin",
+			},
+		}
+
+		// Observed: get and list used -> 2 of 6 wildcard verbs matched
+		observed := []usage.UsageRecord{
+			{Verb: "get", Resource: "services", APIGroup: ""},
+			{Verb: "list", Resource: "endpoints", APIGroup: ""},
+		}
+
+		reduction := calculateReduction(current, observed)
+
+		// 6 wildcard verbs total, 2 matched -> 4 unused -> 4/6*100 = 66%
+		expected := 66
+		if reduction != expected {
+			t.Errorf("expected reduction of %d%%, got %d%%", expected, reduction)
+		}
+
+		// Verify it's a positive, meaningful reduction (not 100% like the old bug)
+		if reduction >= 100 {
+			t.Errorf("wildcard resources should not produce 100%% reduction when verbs are observed, got %d%%", reduction)
+		}
+	})
 }
