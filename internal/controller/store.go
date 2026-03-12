@@ -26,10 +26,12 @@ type NHISnapshot struct {
 	Timestamp string `json:"timestamp"`
 }
 
-// stateData is the internal envelope stored in the ConfigMap's data key.
-type stateData struct {
+// StateData is the envelope stored in the ConfigMap's data key.
+type StateData struct {
 	Version   string        `json:"version"`
 	LastScan  string        `json:"last_scan"`
+	StartedAt string        `json:"started_at,omitempty"`
+	ScanCount int           `json:"scan_count"`
 	Snapshots []NHISnapshot `json:"snapshots"`
 }
 
@@ -61,19 +63,24 @@ func configMapLabels() map[string]string {
 // not yet exist. The ConfigMap is labelled with app.kubernetes.io/name=nhi-watch
 // and app.kubernetes.io/component=controller-state.
 func (s *StateStore) SaveSnapshots(ctx context.Context, snapshots []NHISnapshot) error {
-	sd := stateData{
-		Version:   "v2",
-		LastScan:  time.Now().UTC().Format(time.RFC3339),
-		Snapshots: snapshots,
-	}
-
-	raw, err := json.Marshal(sd)
-	if err != nil {
-		return fmt.Errorf("marshaling state data: %w", err)
-	}
+	now := time.Now().UTC().Format(time.RFC3339)
 
 	existing, err := s.client.CoreV1().ConfigMaps(s.namespace).Get(ctx, s.name, metav1.GetOptions{})
 	if errors.IsNotFound(err) {
+		// First save: set StartedAt to now, ScanCount to 1.
+		sd := StateData{
+			Version:   "v2",
+			LastScan:  now,
+			StartedAt: now,
+			ScanCount: 1,
+			Snapshots: snapshots,
+		}
+
+		raw, err := json.Marshal(sd)
+		if err != nil {
+			return fmt.Errorf("marshaling state data: %w", err)
+		}
+
 		cm := &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      s.name,
@@ -91,6 +98,27 @@ func (s *StateStore) SaveSnapshots(ctx context.Context, snapshots []NHISnapshot)
 	}
 	if err != nil {
 		return fmt.Errorf("getting state configmap: %w", err)
+	}
+
+	// Load previous state to preserve StartedAt and increment ScanCount.
+	var prev StateData
+	if rawPrev, ok := existing.Data[stateDataKey]; ok {
+		if err := json.Unmarshal([]byte(rawPrev), &prev); err != nil {
+			return fmt.Errorf("parsing previous state data: %w", err)
+		}
+	}
+
+	sd := StateData{
+		Version:   "v2",
+		LastScan:  now,
+		StartedAt: prev.StartedAt,
+		ScanCount: prev.ScanCount + 1,
+		Snapshots: snapshots,
+	}
+
+	raw, err := json.Marshal(sd)
+	if err != nil {
+		return fmt.Errorf("marshaling state data: %w", err)
 	}
 
 	// Update existing ConfigMap.
@@ -112,9 +140,9 @@ func (s *StateStore) SaveSnapshots(ctx context.Context, snapshots []NHISnapshot)
 	return nil
 }
 
-// LoadSnapshots reads NHI snapshots from the ConfigMap. If the ConfigMap does
+// LoadState reads the full state from the ConfigMap. If the ConfigMap does
 // not exist (first run), it returns nil, nil.
-func (s *StateStore) LoadSnapshots(ctx context.Context) ([]NHISnapshot, error) {
+func (s *StateStore) LoadState(ctx context.Context) (*StateData, error) {
 	cm, err := s.client.CoreV1().ConfigMaps(s.namespace).Get(ctx, s.name, metav1.GetOptions{})
 	if errors.IsNotFound(err) {
 		return nil, nil
@@ -128,9 +156,22 @@ func (s *StateStore) LoadSnapshots(ctx context.Context) ([]NHISnapshot, error) {
 		return nil, nil
 	}
 
-	var sd stateData
+	var sd StateData
 	if err := json.Unmarshal([]byte(raw), &sd); err != nil {
 		return nil, fmt.Errorf("parsing state data: %w", err)
+	}
+	return &sd, nil
+}
+
+// LoadSnapshots reads NHI snapshots from the ConfigMap. If the ConfigMap does
+// not exist (first run), it returns nil, nil.
+func (s *StateStore) LoadSnapshots(ctx context.Context) ([]NHISnapshot, error) {
+	sd, err := s.LoadState(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if sd == nil {
+		return nil, nil
 	}
 	return sd.Snapshots, nil
 }
