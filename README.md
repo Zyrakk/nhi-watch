@@ -17,7 +17,7 @@ curl -sSL https://raw.githubusercontent.com/Zyrakk/nhi-watch/main/scripts/instal
 Or specify a version:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/Zyrakk/nhi-watch/main/scripts/install.sh | bash -s v1.0.0
+curl -sSL https://raw.githubusercontent.com/Zyrakk/nhi-watch/main/scripts/install.sh | bash -s v2.0.0
 ```
 
 ### Docker
@@ -132,6 +132,54 @@ Exported rules:
 | `SECRET_ACCESS_CLUSTER_WIDE` | 5.1.2 | Cluster-wide secret access |
 | `AUTOMOUNT_TOKEN_ENABLED` | 5.1.6 | Automounted SA tokens |
 
+### controller start
+
+Real-time monitoring of NHI mutations via Kubernetes Watch API.
+
+```bash
+# Start the controller (foreground)
+nhi-watch controller start
+
+# Start with specific namespace
+nhi-watch controller start -n production
+
+# With audit webhook enabled (Layer 2)
+nhi-watch controller start --enable-webhook --webhook-port=9443
+```
+
+The controller detects:
+- New ServiceAccounts, Secrets, RoleBindings, ClusterRoleBindings
+- Modified RBAC permissions (drift detection)
+- Deleted NHI resources
+- Periodic re-scoring with drift alerts
+
+Example output:
+
+```
+[2026-03-12T09:32:18+01:00] mutation.detected: Added ServiceAccount default/drift-test
+[2026-03-12T09:32:19+01:00] mutation.detected: Added ClusterRoleBinding /drift-test
+[2026-03-12T09:32:26+01:00] drift.detected: new default/drift-test: new finding with score 95 (CRITICAL)
+[2026-03-12T09:32:44+01:00] mutation.detected: Deleted ClusterRoleBinding /drift-test
+[2026-03-12T09:32:52+01:00] drift.detected: resolved default/drift-test: finding resolved (was score 95)
+```
+
+### controller status
+
+Show controller state from the ConfigMap.
+
+```bash
+nhi-watch controller status
+nhi-watch controller status --state-namespace=custom-ns
+```
+
+### controller audit-policy
+
+Generate optimized Kubernetes audit policy for Layer 2 usage profiling.
+
+```bash
+nhi-watch controller audit-policy > /etc/k3s/audit-policy.yaml
+```
+
 ## Output Formats
 
 | Format | Flag | Use case |
@@ -204,9 +252,45 @@ jobs:
           sarif_file: nhi-watch.sarif
 ```
 
+## Controller Deployment
+
+NHI-Watch v2.0 introduces a real-time controller with a two-layer architecture:
+
+- **Layer 1 (Watch API):** Watches ServiceAccount, Secret, RoleBinding, and ClusterRoleBinding mutations via client-go informers. Zero extra configuration.
+- **Layer 2 (Audit Webhook):** Optionally receives API server audit events to build per-NHI usage profiles for inactive identity detection and usage-based RBAC generation. Requires `--enable-webhook` and API server audit configuration.
+
+### Manual Setup
+
+```bash
+# Create namespace for state storage
+kubectl create namespace nhi-watch
+
+# Run the controller
+nhi-watch controller start --state-namespace=nhi-watch
+```
+
+### Helm Chart
+
+```bash
+helm install nhi-watch charts/nhi-watch \
+  --set controller.enabled=true \
+  --namespace nhi-watch --create-namespace
+```
+
+With audit webhook:
+
+```bash
+helm install nhi-watch charts/nhi-watch \
+  --set controller.enabled=true \
+  --set controller.webhook.enabled=true \
+  --namespace nhi-watch --create-namespace
+```
+
+See `charts/nhi-watch/values.yaml` for all controller options including debounce interval, resource limits, and state ConfigMap settings.
+
 ## Risk Scoring
 
-16 deterministic rules applied to every NHI. No AI/ML — pure deterministic, reproducible, and auditable. Each rule produces a score from 0-100; the final score is the maximum of all matching rules, adjusted by a pod security posture multiplier.
+18 deterministic rules applied to every NHI. No AI/ML — pure deterministic, reproducible, and auditable. Each rule produces a score from 0-100; the final score is the maximum of all matching rules, adjusted by a pod security posture multiplier.
 
 ### Severity Levels
 
@@ -251,6 +335,15 @@ jobs:
 | `CERT_EXPIRES_30D` | 70 | Certificate expires within 30 days |
 | `CERT_EXPIRES_90D` | 40 | Certificate expires within 90 days |
 
+**Behavioral rules (v2.0):**
+
+| Rule ID | Score | Description |
+|---------|-------|-------------|
+| `INACTIVE_NHI_HIGH` | 55 | ServiceAccount with zero API calls (high confidence, 30+ days observed) |
+| `INACTIVE_NHI_MEDIUM` | 25 | ServiceAccount with zero API calls (medium confidence, 7-29 days observed) |
+
+These rules require the audit webhook (Layer 2) to be enabled. Without usage data, no inactivity assertions are made (zero false positives).
+
 ### CIS Kubernetes Benchmark Mapping
 
 Rules are mapped to CIS Kubernetes Benchmark v1.8 controls where applicable. CIS control IDs appear in JSON/SARIF output and in Gatekeeper policy annotations.
@@ -265,6 +358,7 @@ NHI-Watch discovers pod security context for ServiceAccounts and applies a risk 
 | hostNetwork / hostPID / hostIPC | Increases risk score |
 | Running as root | Increases risk score |
 | No security context | Increases risk score |
+| No egress restriction (NetworkPolicy) | Increases risk score |
 
 The multiplier adjusts the base score: `final_score = min(base_score * multiplier, 100)`. In JSON output, findings include `base_score`, `posture_multiplier`, and `final_score` fields.
 
@@ -286,8 +380,11 @@ nhi-watch/
 │   │   ├── permissions.go          #   permissions command
 │   │   ├── audit.go                #   audit command
 │   │   ├── remediate.go            #   remediate command
+│   │   ├── controller.go          #   controller start/status/audit-policy
 │   │   ├── policy.go               #   policy export command
 │   │   └── version.go              #   version command
+│   ├── controller/                # Real-time controller + drift detection
+│   ├── usage/                     # Usage profiling + audit webhook
 │   ├── k8s/                        # Shared Kubernetes client
 │   ├── models/                     # Shared types
 │   ├── discovery/                  # NHI enumeration
@@ -318,7 +415,7 @@ nhi-watch/
 
 ## Required ClusterRole
 
-NHI-Watch requires read-only access. No write verbs needed.
+NHI-Watch CLI requires read-only access. The controller additionally needs `watch` verbs and ConfigMap write access for state storage.
 
 ```yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -337,6 +434,23 @@ rules:
     verbs: ["get", "list"]
   - apiGroups: ["security.openshift.io"]
     resources: ["securitycontextconstraints"]
+    verbs: ["get", "list"]
+```
+
+When running in controller mode (`controller.enabled=true`), the following additional rules are required:
+
+```yaml
+  # Watch verbs for all resources above (add to existing rules)
+  # verbs: ["get", "list", "watch"]
+
+  # State storage
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "create", "update"]
+
+  # NetworkPolicy awareness
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
     verbs: ["get", "list"]
 ```
 
