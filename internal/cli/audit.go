@@ -24,6 +24,7 @@ var (
 	auditFailOn       string
 	auditSaveBaseline string
 	auditBaseline     string
+	auditQuiet        bool
 )
 
 var auditCmd = &cobra.Command{
@@ -45,6 +46,7 @@ Output formats:
 
 CI/CD integration:
   --fail-on high          Exit code 2 if findings >= HIGH severity
+  --quiet                 Suppress non-error output (for scripting)
   --save-baseline bl.json Save current results as baseline
   --baseline bl.json      Only fail on new/regressed findings vs baseline`,
 	RunE: runAudit,
@@ -57,6 +59,7 @@ func init() {
 	auditCmd.Flags().StringVar(&auditFailOn, "fail-on", "", "exit code 2 if findings at or above this severity (critical|high|medium|low)")
 	auditCmd.Flags().StringVar(&auditSaveBaseline, "save-baseline", "", "save current results as baseline to this file path")
 	auditCmd.Flags().StringVar(&auditBaseline, "baseline", "", "compare results against this baseline file (only new/regressed findings trigger --fail-on)")
+	auditCmd.Flags().BoolVarP(&auditQuiet, "quiet", "q", false, "suppress all non-error output (warnings, progress, table rendering to stderr)")
 	rootCmd.AddCommand(auditCmd)
 }
 
@@ -118,7 +121,7 @@ func runAudit(cmd *cobra.Command, args []string) error {
 	}
 
 	logf := func(format string, args ...interface{}) {
-		if verbose {
+		if verbose && !auditQuiet {
 			fmt.Fprintf(os.Stderr, format+"\n", args...)
 		}
 	}
@@ -135,7 +138,9 @@ func runAudit(cmd *cobra.Command, args []string) error {
 
 	nhis, errs := discovery.DiscoverAll(ctx, clients.Clientset, clients.Discovery, clients.Dynamic, discoverOpts)
 	for _, e := range errs {
-		fmt.Fprintf(os.Stderr, "⚠  %v\n", e)
+		if !auditQuiet {
+			fmt.Fprintf(os.Stderr, "⚠  %v\n", e)
+		}
 	}
 
 	logf("[*] Discovered %d NHIs", len(nhis))
@@ -145,7 +150,9 @@ func runAudit(cmd *cobra.Command, args []string) error {
 
 	resolver, err := permissions.NewResolver(ctx, clients.Clientset)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "⚠  RBAC resolution failed: %v (scoring will proceed without permission data)\n", err)
+		if !auditQuiet {
+			fmt.Fprintf(os.Stderr, "⚠  RBAC resolution failed: %v (scoring will proceed without permission data)\n", err)
+		}
 	} else {
 		for i := range nhis {
 			if nhis[i].Type != discovery.NHITypeServiceAccount {
@@ -203,7 +210,9 @@ func runAudit(cmd *cobra.Command, args []string) error {
 
 	// Stream routing: table → stderr, JSON/SARIF → stdout.
 	if format == reporter.FormatTable {
-		_, _ = os.Stderr.Write(out)
+		if !auditQuiet {
+			_, _ = os.Stderr.Write(out)
+		}
 	} else {
 		_, _ = os.Stdout.Write(out)
 		// JSON/SARIF: ensure trailing newline for shell friendliness.
@@ -217,7 +226,9 @@ func runAudit(cmd *cobra.Command, args []string) error {
 		if err := baseline.Save(auditSaveBaseline, results, clusterName); err != nil {
 			return fmt.Errorf("saving baseline: %w", err)
 		}
-		fmt.Fprintf(os.Stderr, "Baseline saved to %s (%d findings)\n", auditSaveBaseline, len(results))
+		if !auditQuiet {
+			fmt.Fprintf(os.Stderr, "Baseline saved to %s (%d findings)\n", auditSaveBaseline, len(results))
+		}
 	}
 
 	// ── CI/CD: Fail-on threshold ─────────────────────────────────────
