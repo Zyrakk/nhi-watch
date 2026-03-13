@@ -53,6 +53,7 @@ spec:
             {{- toYaml .Values.controller.resources | nindent 12 }}
           securityContext:
             runAsNonRoot: true
+            runAsUser: 65534
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
             capabilities:

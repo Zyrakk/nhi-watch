@@ -18,5 +18,5 @@ RUN CGO_ENABLED=0 go build \
 # Final stage — distroless for minimal attack surface
 FROM gcr.io/distroless/static:nonroot
 COPY --from=builder /nhi-watch /nhi-watch
-USER nonroot:nonroot
+USER 65534
 ENTRYPOINT ["/nhi-watch"]
