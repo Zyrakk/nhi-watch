@@ -13,6 +13,12 @@ import (
 	"github.com/Zyrakk/nhi-watch/internal/scoring"
 )
 
+// eventRecord stores an event name and its detail string.
+type eventRecord struct {
+	event  string
+	detail string
+}
+
 // collectingCallback returns a callback that records all events, and a function
 // to retrieve the collected events.
 func collectingCallback() (EventCallback, func() []string) {
@@ -30,6 +36,29 @@ func collectingCallback() (EventCallback, func() []string) {
 		defer mu.Unlock()
 		cp := make([]string, len(events))
 		copy(cp, events)
+		return cp
+	}
+
+	return cb, get
+}
+
+// collectingCallbackWithDetails returns a callback that records events with their
+// details, and a function to retrieve the collected records.
+func collectingCallbackWithDetails() (EventCallback, func() []eventRecord) {
+	var mu sync.Mutex
+	var records []eventRecord
+
+	cb := func(event, detail string) {
+		mu.Lock()
+		defer mu.Unlock()
+		records = append(records, eventRecord{event: event, detail: detail})
+	}
+
+	get := func() []eventRecord {
+		mu.Lock()
+		defer mu.Unlock()
+		cp := make([]eventRecord, len(records))
+		copy(cp, records)
 		return cp
 	}
 
@@ -202,5 +231,131 @@ func TestHashRuleResults_DifferentRules(t *testing.T) {
 
 	if hashA == hashB {
 		t.Errorf("expected different hashes for {A} and {B}, both got %q", hashA)
+	}
+}
+
+func TestController_InitialAddSuppressed(t *testing.T) {
+	// Before initialSyncDone is set, Add events should be suppressed.
+	sa := &corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "existing-sa",
+			Namespace: "default",
+		},
+	}
+
+	client := fake.NewSimpleClientset()
+	store := NewStateStore(client, "default", "nhi-watch-state")
+	cb, getEvents := collectingCallback()
+
+	ctrl := NewController(client, nil, store, "default", 0, cb)
+
+	// Verify the flag is false by default.
+	_ = getEvents // not needed for this part of the test
+	if ctrl.initialSyncDone.Load() {
+		t.Error("expected initialSyncDone to be false by default")
+	}
+
+	// Clear events and test: with flag false, the AddFunc wrapper should not call onMutation.
+	cb2, getEvents2 := collectingCallbackWithDetails()
+	ctrl2 := NewController(client, nil, store, "default", 0, cb2)
+
+	// Simulate what AddFunc does.
+	addFunc := func(obj interface{}) {
+		if !ctrl2.initialSyncDone.Load() {
+			return
+		}
+		ctrl2.onMutation("Added", obj)
+	}
+
+	// Call with initialSyncDone=false: should be suppressed.
+	addFunc(sa)
+	events2 := getEvents2()
+	for _, r := range events2 {
+		if r.event == "mutation.detected" {
+			t.Error("expected Add to be suppressed during initial sync, but got mutation.detected")
+		}
+	}
+
+	// Set initialSyncDone=true: Add should now be logged.
+	ctrl2.initialSyncDone.Store(true)
+	addFunc(sa)
+	events2 = getEvents2()
+	hasMutation := false
+	for _, r := range events2 {
+		if r.event == "mutation.detected" {
+			hasMutation = true
+			if r.detail != "Added ServiceAccount default/existing-sa" {
+				t.Errorf("unexpected mutation detail: %q", r.detail)
+			}
+		}
+	}
+	if !hasMutation {
+		t.Error("expected mutation.detected after initialSyncDone=true")
+	}
+}
+
+func TestController_StateRecovery(t *testing.T) {
+	// Simulate a restart: save state from a "previous run", then create a new
+	// controller and verify it emits state.loaded on Start().
+	client := fake.NewSimpleClientset(&corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "sa-1",
+			Namespace:         "default",
+			CreationTimestamp: metav1.Now(),
+		},
+	})
+	store := NewStateStore(client, "default", "nhi-watch-state")
+	ctx := context.Background()
+
+	// Save state as if a previous run completed.
+	previousSnapshots := []NHISnapshot{
+		{NHIID: "sa:default:sa-1", Name: "sa-1", Namespace: "default", Type: "service-account", Score: 40, Severity: "MEDIUM"},
+		{NHIID: "sa:default:sa-2", Name: "sa-2", Namespace: "default", Type: "service-account", Score: 80, Severity: "CRITICAL"},
+	}
+	if err := store.SaveSnapshots(ctx, previousSnapshots); err != nil {
+		t.Fatalf("failed to save previous state: %v", err)
+	}
+
+	// Create a new controller (simulates restart) and start it.
+	cb, getEvents := collectingCallbackWithDetails()
+	ctrl := NewController(client, nil, store, "default", 5*time.Second, cb)
+
+	// Start in a goroutine with a cancellable context since Start() blocks.
+	startCtx, cancel := context.WithCancel(ctx)
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- ctrl.Start(startCtx)
+	}()
+
+	// Give it time to start, then cancel.
+	time.Sleep(500 * time.Millisecond)
+	cancel()
+
+	// Wait for Start to return.
+	if err := <-errCh; err != nil && err != context.Canceled {
+		t.Fatalf("Start returned unexpected error: %v", err)
+	}
+
+	// Verify state.loaded event was emitted with correct count.
+	records := getEvents()
+	hasStateLoaded := false
+	for _, r := range records {
+		if r.event == "state.loaded" {
+			hasStateLoaded = true
+			expected := "restored 2 findings from previous run"
+			if r.detail != expected {
+				t.Errorf("state.loaded detail = %q, want %q", r.detail, expected)
+			}
+		}
+	}
+	if !hasStateLoaded {
+		t.Error("expected state.loaded event on restart with existing state")
+	}
+
+	// Verify no mutation.detected events from initial informer Add storm.
+	for _, r := range records {
+		if r.event == "mutation.detected" {
+			t.Errorf("unexpected mutation.detected during restart: %q", r.detail)
+		}
 	}
 }

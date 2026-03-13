@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -46,6 +47,10 @@ type Controller struct {
 	debounceTimer *time.Timer
 	debounceDur   time.Duration
 
+	// initialSyncDone is set to true after informer caches have synced.
+	// Add events before this point are initial cache population, not real mutations.
+	initialSyncDone atomic.Bool
+
 	stopCh chan struct{}
 }
 
@@ -71,6 +76,15 @@ func NewController(client kubernetes.Interface, dynClient dynamic.Interface, sto
 // Start runs the initial scan, sets up informers for ServiceAccounts, Secrets,
 // RoleBindings, and ClusterRoleBindings, and blocks until ctx is cancelled.
 func (c *Controller) Start(ctx context.Context) error {
+	// Load previous state before starting informers so we can distinguish
+	// genuinely new resources from those already known from the prior run.
+	state, loadErr := c.store.LoadState(ctx)
+	if loadErr != nil {
+		c.callback("scan.warning", fmt.Sprintf("failed to load state for recovery: %v", loadErr))
+	} else if state != nil {
+		c.callback("state.loaded", fmt.Sprintf("restored %d findings from previous run", len(state.Snapshots)))
+	}
+
 	// Run the initial scan before starting informers.
 	if err := c.runScan(ctx); err != nil {
 		c.callback("scan.error", fmt.Sprintf("initial scan failed: %v", err))
@@ -93,7 +107,15 @@ func (c *Controller) Start(ctx context.Context) error {
 
 	// Register event handlers for watched resource types.
 	handler := cache.ResourceEventHandlerFuncs{
-		AddFunc:    func(obj interface{}) { c.onMutation("Added", obj) },
+		AddFunc: func(obj interface{}) {
+			// During initial cache sync, informers fire Add for every existing
+			// resource. These are cache population events, not real mutations.
+			// Suppress them to avoid re-logging the entire cluster on restart.
+			if !c.initialSyncDone.Load() {
+				return
+			}
+			c.onMutation("Added", obj)
+		},
 		UpdateFunc: func(_, obj interface{}) { c.onMutation("Updated", obj) },
 		DeleteFunc: func(obj interface{}) {
 			// Handle tombstone objects for resources deleted while the
@@ -136,6 +158,10 @@ func (c *Controller) Start(ctx context.Context) error {
 	// Wait for caches to sync before processing events.
 	c.factory.WaitForCacheSync(c.stopCh)
 	c.crbFactory.WaitForCacheSync(c.stopCh)
+
+	// Mark initial sync complete. After this point, Add events from informers
+	// represent genuinely new resources, not cache population.
+	c.initialSyncDone.Store(true)
 
 	c.callback("controller.started", fmt.Sprintf("namespace=%q", c.namespace))
 
