@@ -119,7 +119,7 @@ func calculateReduction(current []models.ResolvedRule, observed []usage.UsageRec
 	// Build set of current verb+resource pairs, tracking wildcard resources
 	// separately. A wildcard resource means the verb grants access to all
 	// resources, so any observed pair with that verb should count as matched.
-	currentPairs := make(map[string]bool) // explicit verb/resource pairs
+	currentPairs := make(map[string]bool)  // explicit verb/resource pairs
 	wildcardVerbs := make(map[string]bool) // verbs that have resource "*"
 
 	for _, rule := range current {
