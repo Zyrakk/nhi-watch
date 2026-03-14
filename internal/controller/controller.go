@@ -116,7 +116,19 @@ func (c *Controller) Start(ctx context.Context) error {
 			}
 			c.onMutation("Added", obj)
 		},
-		UpdateFunc: func(_, obj interface{}) { c.onMutation("Updated", obj) },
+		UpdateFunc: func(oldObj, obj interface{}) {
+			// During periodic resync the informer fires UpdateFunc for every
+			// cached object even though nothing changed. Filter these out by
+			// comparing ResourceVersion — a resync delivers the same version.
+			if oldMeta, ok := oldObj.(resourceVersioner); ok {
+				if newMeta, ok2 := obj.(resourceVersioner); ok2 {
+					if oldMeta.GetResourceVersion() == newMeta.GetResourceVersion() {
+						return
+					}
+				}
+			}
+			c.onMutation("Updated", obj)
+		},
 		DeleteFunc: func(obj interface{}) {
 			// Handle tombstone objects for resources deleted while the
 			// informer cache was out of sync.
@@ -322,6 +334,13 @@ func hashRuleResults(results []scoring.RuleResult) string {
 	joined := strings.Join(ids, ",")
 	sum := sha256.Sum256([]byte(joined))
 	return fmt.Sprintf("%x", sum[:8])
+}
+
+// resourceVersioner is satisfied by all standard Kubernetes objects (via
+// metav1.ObjectMeta). It lets UpdateFunc compare versions without importing
+// the full metav1 package.
+type resourceVersioner interface {
+	GetResourceVersion() string
 }
 
 // extractResourceInfo returns (resourceType, name, namespace) for a Kubernetes
