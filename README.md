@@ -1,8 +1,13 @@
 # NHI-Watch
 
-**Discover, audit, and score Non-Human Identities in Kubernetes & OpenShift.**
+**Discover, audit, and monitor Non-Human Identities in Kubernetes & OpenShift.**
 
-NHI-Watch is a security CLI that enumerates all Non-Human Identities (NHIs) in your cluster, analyzes their RBAC permissions, and assigns a deterministic risk score mapped to CIS Kubernetes Benchmarks.
+NHI-Watch is a Kubernetes-native security tool that enumerates all Non-Human Identities (NHIs) in your cluster, analyzes their RBAC permissions, assigns a deterministic risk score mapped to CIS Kubernetes Benchmarks, and continuously monitors for NHI mutations and configuration drift.
+
+**Two modes of operation:**
+
+- **CLI Scanner** — On-demand or scheduled audits with JSON, SARIF, and table output. CI/CD pipeline gating via `--fail-on` with baseline tracking.
+- **Real-Time Controller** — Watches ServiceAccount, Secret, RoleBinding, and ClusterRoleBinding mutations via client-go informers. Detects new, resolved, regressed, and improved findings between scan cycles. Persists state to a ConfigMap for drift detection across restarts.
 
 Non-Human Identities include ServiceAccounts, Secrets (API keys, tokens, passwords), TLS certificates, cert-manager Certificates, registry credentials, and agent/cloud provider credentials. NHIs outnumber human identities 17:1 in large organizations and are the fastest-growing attack vector in cloud-native environments.
 
@@ -23,19 +28,31 @@ curl -sSL https://raw.githubusercontent.com/Zyrakk/nhi-watch/main/scripts/instal
 ### Docker
 
 ```bash
-docker run --rm -v ~/.kube/config:/home/nonroot/.kube/config:ro \
+docker run --rm -v ~/.kube/config:/.kube/config:ro \
+  -e KUBECONFIG=/.kube/config \
   ghcr.io/zyrakk/nhi-watch:latest audit -o json
 ```
 
 ### Helm
 
+**Scheduled audit (CronJob):**
+
 ```bash
 helm install nhi-watch charts/nhi-watch \
   --set audit.failOn=critical \
-  --set schedule="0 2 * * *"
+  --set schedule="0 2 * * *" \
+  --namespace nhi-watch --create-namespace
 ```
 
-The Helm chart deploys a CronJob that runs `nhi-watch audit` on a schedule. See `charts/nhi-watch/values.yaml` for all options.
+**Real-time controller (Deployment):**
+
+```bash
+helm install nhi-watch charts/nhi-watch \
+  --set controller.enabled=true \
+  --namespace nhi-watch --create-namespace
+```
+
+Both modes can run simultaneously. See `charts/nhi-watch/values.yaml` for all options.
 
 ### Build from Source
 
@@ -137,25 +154,31 @@ Exported rules:
 Real-time monitoring of NHI mutations via Kubernetes Watch API.
 
 ```bash
-# Start the controller (foreground)
+# Start the controller (foreground, all namespaces)
 nhi-watch controller start
 
 # Start with specific namespace
 nhi-watch controller start -n production
+
+# Custom state storage location
+nhi-watch controller start --state-namespace=monitoring --state-configmap=nhi-state
 
 # With audit webhook enabled (Layer 2)
 nhi-watch controller start --enable-webhook --webhook-port=8443
 ```
 
 The controller detects:
-- New ServiceAccounts, Secrets, RoleBindings, ClusterRoleBindings
-- Modified RBAC permissions (drift detection)
-- Deleted NHI resources
-- Periodic re-scoring with drift alerts
+- **Mutations:** New, modified, and deleted ServiceAccounts, Secrets, RoleBindings, ClusterRoleBindings
+- **Drift:** New findings, resolved findings, score regressions, score improvements, rule changes
+- **State recovery:** Restores previous scan state from ConfigMap on restart
+
+Resync events (periodic informer re-list every 5 minutes) are automatically filtered out — only real mutations trigger re-scans.
 
 Example output:
 
 ```
+[2026-03-12T09:32:18+01:00] state.loaded: restored 96 findings from previous run
+[2026-03-12T09:32:20+01:00] scan.complete: scored 96 NHIs
 [2026-03-12T09:32:18+01:00] mutation.detected: Added ServiceAccount default/drift-test
 [2026-03-12T09:32:19+01:00] mutation.detected: Added ClusterRoleBinding /drift-test
 [2026-03-12T09:32:26+01:00] drift.detected: new default/drift-test: new finding with score 95 (CRITICAL)
@@ -256,8 +279,10 @@ jobs:
 
 NHI-Watch v2.0 introduces a real-time controller with a two-layer architecture:
 
-- **Layer 1 (Watch API):** Watches ServiceAccount, Secret, RoleBinding, and ClusterRoleBinding mutations via client-go informers. Zero extra configuration.
+- **Layer 1 (Watch API):** Watches ServiceAccount, Secret, RoleBinding, and ClusterRoleBinding mutations via client-go informers. Detects additions, deletions, and real updates (resync events are filtered out). Debounced re-scans coalesce rapid mutations into a single scan cycle. Zero extra configuration.
 - **Layer 2 (Audit Webhook):** Optionally receives API server audit events to build per-NHI usage profiles for inactive identity detection and usage-based RBAC generation. Requires `--enable-webhook` and API server audit configuration.
+
+**State management:** The controller persists NHI snapshots to a ConfigMap (`nhi-watch-state` by default). On restart, it restores previous state and suppresses false alerts from initial cache population. Drift detection compares current scan results against the persisted state to identify new, resolved, regressed, and improved findings.
 
 ### Manual Setup
 
@@ -265,8 +290,14 @@ NHI-Watch v2.0 introduces a real-time controller with a two-layer architecture:
 # Create namespace for state storage
 kubectl create namespace nhi-watch
 
-# Run the controller
+# Run the controller (foreground)
 nhi-watch controller start --state-namespace=nhi-watch
+
+# With custom debounce interval
+nhi-watch controller start --state-namespace=nhi-watch --debounce=10
+
+# Single namespace only
+nhi-watch controller start -n production --state-namespace=nhi-watch
 ```
 
 ### Helm Chart
@@ -277,7 +308,7 @@ helm install nhi-watch charts/nhi-watch \
   --namespace nhi-watch --create-namespace
 ```
 
-With audit webhook:
+With audit webhook (Layer 2):
 
 ```bash
 helm install nhi-watch charts/nhi-watch \
@@ -290,7 +321,7 @@ See `charts/nhi-watch/values.yaml` for all controller options including debounce
 
 ## Risk Scoring
 
-18 deterministic rules applied to every NHI. No AI/ML — pure deterministic, reproducible, and auditable. Each rule produces a score from 0-100; the final score is the maximum of all matching rules, adjusted by a pod security posture multiplier.
+18 deterministic rules (16 static + 2 behavioral) applied to every NHI. No AI/ML — pure deterministic, reproducible, and auditable. Each rule produces a score from 0-100; the final score is the maximum of all matching rules, adjusted by a pod security posture multiplier.
 
 ### Severity Levels
 
@@ -335,14 +366,14 @@ See `charts/nhi-watch/values.yaml` for all controller options including debounce
 | `CERT_EXPIRES_30D` | 70 | Certificate expires within 30 days |
 | `CERT_EXPIRES_90D` | 50 | Certificate expires within 90 days |
 
-**Behavioral rules (v2.0):**
+**Behavioral rules (Layer 2 only):**
 
 | Rule ID | Score | Description |
 |---------|-------|-------------|
 | `INACTIVE_NHI_HIGH` | 55 | ServiceAccount with zero API calls (high confidence, 30+ days observed) |
 | `INACTIVE_NHI_MEDIUM` | 25 | ServiceAccount with zero API calls (medium confidence, 7-29 days observed) |
 
-These rules require the audit webhook (Layer 2) to be enabled. Without usage data, no inactivity assertions are made (zero false positives).
+These rules require the audit webhook (Layer 2) to be enabled with `--enable-webhook`. Without usage data, no inactivity assertions are made — zero false positives by design.
 
 ### CIS Kubernetes Benchmark Mapping
 
@@ -380,27 +411,28 @@ nhi-watch/
 │   │   ├── permissions.go          #   permissions command
 │   │   ├── audit.go                #   audit command
 │   │   ├── remediate.go            #   remediate command
-│   │   ├── controller.go          #   controller start/status/audit-policy
+│   │   ├── controller.go           #   controller start/status/audit-policy
 │   │   ├── policy.go               #   policy export command
 │   │   └── version.go              #   version command
-│   ├── controller/                # Real-time controller + drift detection
-│   ├── usage/                     # Usage profiling + audit webhook
-│   ├── k8s/                        # Shared Kubernetes client
-│   ├── models/                     # Shared types
-│   ├── discovery/                  # NHI enumeration
-│   ├── permissions/                # RBAC analysis
-│   ├── scoring/                    # Risk scoring engine + rules
+│   ├── controller/                 # Real-time controller, drift detection, state store
+│   ├── usage/                      # Usage profiling + audit webhook (Layer 2)
+│   ├── k8s/                        # Shared Kubernetes client factory
+│   ├── models/                     # Shared RBAC types
+│   ├── discovery/                  # NHI enumeration (8 types, parallel)
+│   ├── permissions/                # RBAC resolution + analysis
+│   ├── scoring/                    # Risk scoring engine (18 rules)
 │   ├── reporter/                   # Table / JSON / SARIF output
-│   ├── baseline/                   # Baseline save/load/diff
-│   ├── remediation/                # YAML remediation generation
+│   ├── baseline/                   # Baseline save/load/diff for CI/CD
+│   ├── remediation/                # Least-privilege YAML generation
 │   └── policy/                     # Gatekeeper ConstraintTemplate export
-├── charts/nhi-watch/               # Helm chart
+├── charts/nhi-watch/               # Helm chart (CronJob + Deployment)
 ├── scripts/install.sh              # Install script
-├── Dockerfile                      # Multi-stage distroless image
+├── Dockerfile                      # Multi-stage distroless image (UID 65534)
 ├── .goreleaser.yml                 # GoReleaser configuration
 ├── .github/workflows/
-│   ├── ci.yml                      # CI (lint + test)
-│   └── release.yml                 # Release workflow
+│   ├── ci.yml                      # CI (lint + test + build)
+│   └── release.yml                 # Release workflow (GoReleaser)
+├── CHANGELOG.md
 ├── Makefile
 └── go.mod
 ```
@@ -415,7 +447,9 @@ nhi-watch/
 
 ## Required ClusterRole
 
-NHI-Watch CLI requires read-only access. The controller additionally needs `watch` verbs and ConfigMap write access for state storage.
+NHI-Watch CLI requires read-only access. The controller additionally needs `watch` verbs and ConfigMap write access for state persistence. The Helm chart handles this automatically via `controller.enabled`.
+
+**CLI mode (scan-and-exit):**
 
 ```yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -424,31 +458,31 @@ metadata:
   name: nhi-watch-reader
 rules:
   - apiGroups: [""]
-    resources: ["serviceaccounts", "secrets", "pods"]
+    resources: ["serviceaccounts", "secrets", "pods", "namespaces"]
     verbs: ["get", "list"]
   - apiGroups: ["rbac.authorization.k8s.io"]
-    resources: ["rolebindings", "clusterrolebindings", "roles", "clusterroles"]
+    resources: ["roles", "clusterroles", "rolebindings", "clusterrolebindings"]
     verbs: ["get", "list"]
   - apiGroups: ["cert-manager.io"]
-    resources: ["certificates", "certificaterequests"]
+    resources: ["certificates"]
     verbs: ["get", "list"]
   - apiGroups: ["security.openshift.io"]
     resources: ["securitycontextconstraints"]
     verbs: ["get", "list"]
 ```
 
-When running in controller mode (`controller.enabled=true`), the following additional rules are required:
+**Controller mode (additional rules):**
 
 ```yaml
-  # Watch verbs for all resources above (add to existing rules)
+  # Add "watch" to all resource rules above:
   # verbs: ["get", "list", "watch"]
 
-  # State storage
+  # State storage (ConfigMap persistence)
   - apiGroups: [""]
     resources: ["configmaps"]
     verbs: ["get", "list", "create", "update"]
 
-  # NetworkPolicy awareness
+  # NetworkPolicy awareness (egress risk multiplier)
   - apiGroups: ["networking.k8s.io"]
     resources: ["networkpolicies"]
     verbs: ["get", "list"]

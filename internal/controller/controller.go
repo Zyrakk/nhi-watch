@@ -54,6 +54,13 @@ type Controller struct {
 	stopCh chan struct{}
 }
 
+// resourceVersioner is satisfied by all standard Kubernetes objects (via
+// metav1.ObjectMeta). It lets UpdateFunc compare ResourceVersions to filter
+// informer resync events without importing the full metav1 package.
+type resourceVersioner interface {
+	GetResourceVersion() string
+}
+
 // NewController creates a controller that watches SA/Secret/RoleBinding/ClusterRoleBinding
 // mutations and triggers debounced re-scans. If debounceDuration is 0, re-scans
 // run immediately (useful for tests). The callback receives lifecycle event notifications.
@@ -120,12 +127,15 @@ func (c *Controller) Start(ctx context.Context) error {
 			// During periodic resync the informer fires UpdateFunc for every
 			// cached object even though nothing changed. Filter these out by
 			// comparing ResourceVersion — a resync delivers the same version.
-			if oldMeta, ok := oldObj.(resourceVersioner); ok {
-				if newMeta, ok2 := obj.(resourceVersioner); ok2 {
-					if oldMeta.GetResourceVersion() == newMeta.GetResourceVersion() {
-						return
-					}
-				}
+			// Note: no initialSyncDone guard here — real updates during initial
+			// sync are genuine mutations and should be processed.
+			oldMeta, ok1 := oldObj.(resourceVersioner)
+			newMeta, ok2 := obj.(resourceVersioner)
+			if !ok1 || !ok2 {
+				return
+			}
+			if oldMeta.GetResourceVersion() == newMeta.GetResourceVersion() {
+				return
 			}
 			c.onMutation("Updated", obj)
 		},
@@ -334,13 +344,6 @@ func hashRuleResults(results []scoring.RuleResult) string {
 	joined := strings.Join(ids, ",")
 	sum := sha256.Sum256([]byte(joined))
 	return fmt.Sprintf("%x", sum[:8])
-}
-
-// resourceVersioner is satisfied by all standard Kubernetes objects (via
-// metav1.ObjectMeta). It lets UpdateFunc compare versions without importing
-// the full metav1 package.
-type resourceVersioner interface {
-	GetResourceVersion() string
 }
 
 // extractResourceInfo returns (resourceType, name, namespace) for a Kubernetes
